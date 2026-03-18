@@ -1,0 +1,18 @@
+image: node:18-alpine
+
+stages:
+  - test
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .npm/
+
+variables:
+  NPM_CONFIG_CACHE: .npm
+
+test:unit:
+  stage: test
+  script:
+    - npm ci
+    - npm test
