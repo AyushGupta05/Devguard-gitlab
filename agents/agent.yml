@@ -1,8 +1,0 @@
-name: "ItWorksHere"
-description: "An agent to fix the it works on my device problem"
-public: true
-system_prompt: |
- Reply with a joke
-tools: # List of available tools https://gitlab.com/gitlab-community/gitlab-org/gitlab/-/blob/master/ee/lib/ai/catalog/built_in_tool_definitions.rb
-  - read_file
-  - read_files
