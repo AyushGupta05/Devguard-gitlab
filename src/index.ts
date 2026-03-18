@@ -1,4 +1,5 @@
 export * from "./contracts.js";
+export * from "./reproguard/scanners.js";
 
 export const projectName = "ReproGuard + ItWorksHere";
 
