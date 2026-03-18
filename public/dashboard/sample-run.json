@@ -1,0 +1,80 @@
+{
+  "projectPath": "fixtures/billing-service",
+  "mrIid": 12,
+  "pipelineId": 105,
+  "timeline": [
+    {
+      "key": "mr_opened",
+      "title": "Merge request opened",
+      "detail": "The change introduces Array.prototype.toSorted() in billing code.",
+      "status": "completed"
+    },
+    {
+      "key": "reproguard_warned",
+      "title": "ReproGuard warning posted",
+      "detail": "Found 2 reproducibility risks that may break CI or a clean developer environment.",
+      "status": "completed"
+    },
+    {
+      "key": "merge_ignored_warning",
+      "title": "Warning ignored and merged",
+      "detail": "The risky merge request is merged without updating CI.",
+      "status": "completed"
+    },
+    {
+      "key": "pipeline_failed",
+      "title": "Pipeline failed",
+      "detail": "test:unit fails with invoices.toSorted is not a function.",
+      "status": "completed"
+    },
+    {
+      "key": "prediction_confirmed",
+      "title": "Prediction confirmed",
+      "detail": "The failure signature matches the Node 20 API mismatch predicted before merge.",
+      "status": "completed"
+    },
+    {
+      "key": "fix_generated",
+      "title": "Fix bundle generated",
+      "detail": "Generated a minimal fix bundle for the confirmed Node runtime mismatch.",
+      "status": "completed"
+    }
+  ],
+  "predictionMatch": {
+    "status": "CONFIRMED"
+  },
+  "riskReport": {
+    "summary": "Found 2 reproducibility risks that may break CI or a clean developer environment.",
+    "risks": [
+      {
+        "title": "Node 20 API introduced while CI still runs Node 18"
+      },
+      {
+        "title": "Undeclared environment variable: REDIS_URL"
+      }
+    ]
+  },
+  "causalAnalysis": {
+    "rootCause": "CI is running Node 18 while the merge request introduces Array.prototype.toSorted(), which requires Node 20."
+  },
+  "fixBundle": {
+    "artifacts": [
+      {
+        "path": "reproguard-fix.patch",
+        "content": "git apply reproguard-fix.patch"
+      },
+      {
+        "path": ".gitlab-ci.yml",
+        "content": "image: node:20-alpine"
+      },
+      {
+        "path": ".env.example",
+        "content": "REDIS_URL=redis://localhost:6379"
+      },
+      {
+        "path": "setup.sh",
+        "content": "#!/usr/bin/env sh\nset -eu\nnpm ci\nnpm test"
+      }
+    ]
+  }
+}

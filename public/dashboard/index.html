@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ReproGuard + ItWorksHere Dashboard</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f5ef;
+        --panel: #fffdf8;
+        --ink: #1f2937;
+        --muted: #5b6471;
+        --line: #d4cec2;
+        --accent: #a63f2f;
+        --accent-soft: #f2ddd8;
+        --ok: #1f7a4d;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(166, 63, 47, 0.12), transparent 28%),
+          linear-gradient(180deg, #fbf7ef 0%, var(--bg) 100%);
+        color: var(--ink);
+      }
+
+      main {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 40px 20px 56px;
+      }
+
+      h1,
+      h2 {
+        margin: 0;
+      }
+
+      p {
+        color: var(--muted);
+      }
+
+      .hero {
+        display: grid;
+        gap: 12px;
+        margin-bottom: 28px;
+      }
+
+      .hero h1 {
+        font-size: clamp(2rem, 4vw, 3.4rem);
+        line-height: 1;
+      }
+
+      .hero strong {
+        color: var(--accent);
+      }
+
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+
+      .card,
+      .timeline-item,
+      .artifact {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow: 0 12px 32px rgba(31, 41, 55, 0.06);
+      }
+
+      .card span {
+        display: block;
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+
+      .card strong {
+        font-size: 1.65rem;
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: 1.35fr 1fr;
+      }
+
+      .timeline {
+        display: grid;
+        gap: 14px;
+      }
+
+      .timeline-item {
+        border-left: 6px solid var(--accent);
+      }
+
+      .timeline-item small {
+        color: var(--ok);
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+
+      .stack {
+        display: grid;
+        gap: 16px;
+      }
+
+      .artifact-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .artifact h3,
+      .timeline-item h3 {
+        margin: 10px 0 8px;
+        font-size: 1rem;
+      }
+
+      code,
+      pre {
+        font-family: "Cascadia Code", "Courier New", monospace;
+      }
+
+      pre {
+        white-space: pre-wrap;
+        background: #f4efe5;
+        border-radius: 12px;
+        padding: 12px;
+        overflow: auto;
+        font-size: 0.85rem;
+      }
+
+      @media (max-width: 820px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <p>ReproGuard + ItWorksHere</p>
+        <h1>Predict it. <strong>Catch it.</strong> Fix it.</h1>
+        <p id="summary">Loading replayable demo run...</p>
+      </section>
+
+      <section class="cards" id="metrics"></section>
+
+      <section class="grid">
+        <div>
+          <h2>Timeline</h2>
+          <div class="timeline" id="timeline"></div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <span>Root cause</span>
+            <strong id="root-cause-title">Loading</strong>
+            <p id="root-cause-body"></p>
+          </div>
+          <div>
+            <h2>Artifacts</h2>
+            <div class="artifact-list" id="artifacts"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
