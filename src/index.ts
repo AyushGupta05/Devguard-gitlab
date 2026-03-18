@@ -1,3 +1,5 @@
+export * from "./contracts.js";
+
 export const projectName = "ReproGuard + ItWorksHere";
 
 if (import.meta.url === `file://${process.argv[1]}`) {
