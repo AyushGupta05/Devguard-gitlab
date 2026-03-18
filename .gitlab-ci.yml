@@ -1,6 +1,7 @@
 stages:
   - validate
   - test
+  - deploy
 
 default:
   image: node:20-alpine
@@ -24,3 +25,13 @@ test:
     - npm install
     - npm run build
     - npm test
+
+pages:
+  stage: deploy
+  script:
+    - echo "Publishing static dashboard"
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
