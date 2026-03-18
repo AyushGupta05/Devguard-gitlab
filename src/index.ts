@@ -1,4 +1,5 @@
 export * from "./contracts.js";
+export * from "./itworkshere/analysis.js";
 export * from "./itworkshere/failure-intake.js";
 export * from "./reproguard/reasoning.js";
 export * from "./reproguard/scanners.js";
