@@ -5,10 +5,12 @@ import {
   noteEnvelopeMarkers,
   riskReportSchema,
   type EnvironmentMap,
+  type LocalSetupPlan,
   type RiskReport,
   type Risk
 } from "../contracts.js";
 import { embedPayloadInNote } from "../contracts.js";
+import { buildLocalRunConfigurationRisk } from "./local-run.js";
 import { type PreventionSignal } from "./scanners.js";
 
 type BuildRiskReportOptions = {
@@ -16,6 +18,7 @@ type BuildRiskReportOptions = {
   mergeRequestDiff: string;
   environmentMap: EnvironmentMap;
   signals: PreventionSignal[];
+  localSetupPlan?: LocalSetupPlan;
 };
 
 export function buildRiskReport(options: BuildRiskReportOptions): RiskReport {
@@ -40,6 +43,19 @@ export function buildRiskReport(options: BuildRiskReportOptions): RiskReport {
         ...signal,
         confidence: 0.92
       });
+      counter += 1;
+    }
+  }
+
+  if (options.localSetupPlan) {
+    const localRunRisk = buildLocalRunConfigurationRisk(
+      options.localSetupPlan,
+      options.environmentMap,
+      `R${counter}`
+    );
+
+    if (localRunRisk) {
+      risks.push(localRunRisk);
       counter += 1;
     }
   }

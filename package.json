@@ -6,6 +6,7 @@
   "description": "GitLab Duo Agent Platform managing project for ReproGuard + ItWorksHere",
   "scripts": {
     "build": "tsc --pretty false --noEmit",
+    "demo:bootstrap-plan": "tsx src/demo/bootstrap-plan.ts",
     "demo:golden-path": "tsx src/demo/golden-path.ts",
     "test": "vitest run",
     "test:watch": "vitest",

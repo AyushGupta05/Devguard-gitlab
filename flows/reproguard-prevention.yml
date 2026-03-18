@@ -35,7 +35,7 @@ definition:
 
           Your job:
           - review merge request changes before CI completes
-          - look for runtime mismatches, missing environment variables, and CI environment assumptions
+          - look for runtime mismatches, missing environment variables, CI environment assumptions, and local setup gaps
           - only emit warnings when the risk is medium or high confidence
           - keep the response short enough for a merge request note
 
@@ -43,6 +43,7 @@ definition:
           - summary sentence
           - bullet list of predicted risks
           - smallest suggested fix for each risk
+          - mention when the repository will be hard to run locally on a clean machine
         user: |
           {{goal}}
         placeholder: history

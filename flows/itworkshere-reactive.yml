@@ -39,12 +39,14 @@ definition:
           - classify the outcome as confirmed, partial, or uninvestigated
           - explain the root cause with evidence
           - propose the smallest fix that should unblock the pipeline
+          - when asked about local setup, read README guidance and turn it into a concrete bootstrap and verification plan
 
           Output format:
           - status line
           - evidence bullets
           - root cause statement
           - minimal fix proposal
+          - for local setup requests, include install, environment, run, and verify steps
         user: |
           {{goal}}
         placeholder: history

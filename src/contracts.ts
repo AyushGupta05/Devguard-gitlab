@@ -5,6 +5,7 @@ import { z } from "zod";
 export const riskTypes = [
   "RUNTIME_MISMATCH",
   "GHOST_VARIABLE",
+  "LOCAL_RUN_CONFIGURATION",
   "TIMEZONE_ASSUMPTION",
   "DOCKER_IMAGE_DRIFT",
   "UNKNOWN"
@@ -135,6 +136,39 @@ export const fixBundleSchema = z.object({
   applyCommand: z.string()
 });
 
+export const localSetupCommandSchema = z.object({
+  command: z.string(),
+  purpose: z.enum(["install", "start", "verify", "environment"]),
+  source: z.string()
+});
+
+export const localEnvironmentVariableSchema = z.object({
+  name: z.string(),
+  required: z.boolean(),
+  source: z.string(),
+  hasTemplate: z.boolean()
+});
+
+export const localSetupPlanSchema = z.object({
+  runId: z.string(),
+  projectPath: z.string(),
+  readmePath: z.string().nullable(),
+  detectedStack: z.enum(["node", "python", "unknown"]),
+  runtimeHints: z.array(z.object({
+    tool: z.string(),
+    value: z.string(),
+    source: z.string()
+  })),
+  installCommands: z.array(localSetupCommandSchema),
+  startCommands: z.array(localSetupCommandSchema),
+  verificationCommands: z.array(localSetupCommandSchema),
+  environmentCommands: z.array(localSetupCommandSchema),
+  environmentVariables: z.array(localEnvironmentVariableSchema),
+  blockers: z.array(z.string()),
+  assumptions: z.array(z.string()),
+  confidence: z.number().min(0).max(1)
+});
+
 export type EnvironmentMap = z.infer<typeof environmentMapSchema>;
 export type Risk = z.infer<typeof riskSchema>;
 export type RiskReport = z.infer<typeof riskReportSchema>;
@@ -142,6 +176,7 @@ export type FailureContext = z.infer<typeof failureContextSchema>;
 export type PredictionMatch = z.infer<typeof predictionMatchSchema>;
 export type CausalAnalysis = z.infer<typeof causalAnalysisSchema>;
 export type FixBundle = z.infer<typeof fixBundleSchema>;
+export type LocalSetupPlan = z.infer<typeof localSetupPlanSchema>;
 
 export const noteEnvelopeMarkers = {
   riskReportStart: "<!-- reproguard:risk-report:start -->",

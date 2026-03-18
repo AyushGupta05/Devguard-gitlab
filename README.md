@@ -1,9 +1,9 @@
 # ReproGuard + ItWorksHere
 
-ReproGuard + ItWorksHere is a GitLab Duo Agent Platform managing project for a two-layer reproducibility demo:
+ReproGuard + ItWorksHere is a GitLab Duo Agent Platform managing project for a reproducibility product with two connected modes:
 
 - `ReproGuard` predicts merge request risks before CI runs.
-- `ItWorksHere` confirms a predicted pipeline failure and proposes the smallest useful fix bundle.
+- `ItWorksHere` turns freshly cloned repositories into runnable local setups and confirms predicted pipeline failures after CI breaks.
 
 The current implementation is optimized for one polished Node.js golden path:
 
@@ -31,6 +31,8 @@ The current implementation is optimized for one polished Node.js golden path:
 - diff-aware prevention reasoning and merge request note generation
 - failed pipeline intake, prediction matching, causal analysis, and reactive note generation
 - minimal fix synthesis for the confirmed Node runtime mismatch case
+- README-driven local bootstrap planning for cloned repositories
+- local run configuration diagnostics that can be surfaced during merge request analysis
 - a replayable golden-path dashboard and submission/demo assets
 
 ## Demo Fixture
@@ -57,6 +59,12 @@ npm test
 npm run demo:golden-path
 ```
 
+To inspect how ItWorksHere would bootstrap a freshly cloned repo locally:
+
+```bash
+npm run demo:bootstrap-plan -- .
+```
+
 Full verification:
 
 ```bash
@@ -76,6 +84,28 @@ The pipeline:
 - validates the project on normal commits
 - includes AI Catalog sync wiring
 - publishes the static dashboard from `public/` through GitLab Pages on the default branch
+
+## Product Behavior
+
+For cloned repositories:
+
+1. read `README.md`
+2. infer runtime, install, environment, start, and verification steps
+3. compare README instructions against the actual repository files
+4. call out blockers when the repo still is not runnable on a clean machine
+
+For merge requests:
+
+1. inspect the diff plus repo config
+2. warn about CI/runtime mismatches, missing env vars, and local run setup gaps
+3. store the warning so later failures can be matched back to it
+
+For failed pipelines:
+
+1. read the failed job log
+2. compare it against the stored warning
+3. confirm the prediction when it matches
+4. generate the smallest credible fix bundle
 
 ## Demo Runbook
 
