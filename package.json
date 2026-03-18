@@ -9,6 +9,7 @@
     "demo:golden-path": "tsx src/demo/golden-path.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "verify:full": "npm run build && npm test && npm run demo:golden-path",
     "smoke": "tsx src/index.ts"
   },
   "dependencies": {
