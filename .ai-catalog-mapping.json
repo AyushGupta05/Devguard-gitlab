@@ -3,7 +3,7 @@
   "agents": {
     "agents/agent.yml": {
       "catalog_id": "gid://gitlab/Ai::Catalog::Item/1005223",
-      "name": "ItWorksHere",
+      "name": "ReproGuard",
       "created_at": "2026-03-17T19:31:58.604Z",
       "item_consumers": {
         "group": {
@@ -14,12 +14,51 @@
         }
       },
       "latest_sync": {
-        "git_tag": "v1",
-        "catalog_version": "1.0.0",
-        "synced_at": "2026-03-17T19:31:58.604Z",
-        "definition_hash": "fcc17115b62d9331"
+        "git_tag": "v3",
+        "catalog_version": "1.1.0",
+        "synced_at": "2026-03-18T13:34:13.782Z",
+        "definition_hash": "e26fd5c877e2e758"
       }
     }
   },
-  "flows": {}
+  "flows": {
+    "flows/itworkshere-reactive.yml": {
+      "catalog_id": "gid://gitlab/Ai::Catalog::Item/1005354",
+      "name": "ItWorksHere Reactive",
+      "created_at": "2026-03-18T13:34:14.511Z",
+      "item_consumers": {
+        "group": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5498583"
+        },
+        "project": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5498584"
+        }
+      },
+      "latest_sync": {
+        "git_tag": "v3",
+        "catalog_version": "1.0.0",
+        "synced_at": "2026-03-18T13:34:14.511Z",
+        "definition_hash": "01e57514e2efb287"
+      }
+    },
+    "flows/reproguard-prevention.yml": {
+      "catalog_id": "gid://gitlab/Ai::Catalog::Item/1005355",
+      "name": "ReproGuard Prevention",
+      "created_at": "2026-03-18T13:34:15.967Z",
+      "item_consumers": {
+        "group": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5498588"
+        },
+        "project": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5498589"
+        }
+      },
+      "latest_sync": {
+        "git_tag": "v3",
+        "catalog_version": "1.0.0",
+        "synced_at": "2026-03-18T13:34:15.967Z",
+        "definition_hash": "bbddcda108da7abb"
+      }
+    }
+  }
 }
