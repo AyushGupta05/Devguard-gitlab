@@ -137,6 +137,7 @@ export const fixBundleSchema = z.object({
 });
 
 export const localSetupCommandSchema = z.object({
+  id: z.string().optional(),
   command: z.string(),
   purpose: z.enum(["install", "start", "verify", "environment"]),
   source: z.string()
@@ -169,6 +170,43 @@ export const localSetupPlanSchema = z.object({
   confidence: z.number().min(0).max(1)
 });
 
+export const repositorySourceSchema = z.object({
+  url: z.string(),
+  provider: z.enum(["github", "gitlab", "unknown"]),
+  owner: z.string(),
+  name: z.string(),
+  cloneUrl: z.string()
+});
+
+export const approvalScopeSchema = z.enum(["clone", "environment", "install", "start", "verify"]);
+
+export const terminalCommandRequestSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  command: z.string(),
+  workdir: z.string(),
+  purpose: approvalScopeSchema,
+  source: z.string(),
+  requiresApproval: z.boolean(),
+  approved: z.boolean(),
+  status: z.enum(["pending", "approved", "running", "completed", "blocked", "failed"]),
+  exitCode: z.number().int().nullable(),
+  stdout: z.string().default(""),
+  stderr: z.string().default("")
+});
+
+export const remoteBootstrapSessionSchema = z.object({
+  runId: z.string(),
+  source: repositorySourceSchema,
+  workspaceRoot: z.string(),
+  repositoryRoot: z.string(),
+  cloneRequired: z.boolean(),
+  localSetupPlan: localSetupPlanSchema.nullable(),
+  commandRequests: z.array(terminalCommandRequestSchema),
+  blockers: z.array(z.string()),
+  guidance: z.array(z.string())
+});
+
 export type EnvironmentMap = z.infer<typeof environmentMapSchema>;
 export type Risk = z.infer<typeof riskSchema>;
 export type RiskReport = z.infer<typeof riskReportSchema>;
@@ -177,6 +215,9 @@ export type PredictionMatch = z.infer<typeof predictionMatchSchema>;
 export type CausalAnalysis = z.infer<typeof causalAnalysisSchema>;
 export type FixBundle = z.infer<typeof fixBundleSchema>;
 export type LocalSetupPlan = z.infer<typeof localSetupPlanSchema>;
+export type RepositorySource = z.infer<typeof repositorySourceSchema>;
+export type TerminalCommandRequest = z.infer<typeof terminalCommandRequestSchema>;
+export type RemoteBootstrapSession = z.infer<typeof remoteBootstrapSessionSchema>;
 
 export const noteEnvelopeMarkers = {
   riskReportStart: "<!-- reproguard:risk-report:start -->",

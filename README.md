@@ -32,6 +32,7 @@ The current implementation is optimized for one polished Node.js golden path:
 - failed pipeline intake, prediction matching, causal analysis, and reactive note generation
 - minimal fix synthesis for the confirmed Node runtime mismatch case
 - README-driven local bootstrap planning for cloned repositories
+- approval-gated remote bootstrap sessions for GitHub, GitLab, or local git repositories
 - local run configuration diagnostics that can be surfaced during merge request analysis
 - a replayable golden-path dashboard and submission/demo assets
 
@@ -65,6 +66,20 @@ To inspect how ItWorksHere would bootstrap a freshly cloned repo locally:
 npm run demo:bootstrap-plan -- .
 ```
 
+To build an approval-gated session from a GitHub or GitLab repository URL:
+
+```bash
+npm run demo:remote-bootstrap -- https://github.com/openai/openai-cookbook .sandbox-clones
+```
+
+To approve and execute the clone step:
+
+```bash
+npm run demo:remote-bootstrap -- https://github.com/openai/openai-cookbook .sandbox-clones clone
+```
+
+After the repository is cloned, rerun the same command with whichever discovered step IDs you want to approve, for example an install step such as `install-npm-install`.
+
 Full verification:
 
 ```bash
@@ -89,10 +104,12 @@ The pipeline:
 
 For cloned repositories:
 
-1. read `README.md`
-2. infer runtime, install, environment, start, and verification steps
-3. compare README instructions against the actual repository files
-4. call out blockers when the repo still is not runnable on a clean machine
+1. accept a GitHub, GitLab, or local git repository source
+2. require approval before cloning or running any terminal command
+3. after clone, read `README.md`
+4. infer runtime, install, environment, start, and verification steps
+5. compare README instructions against the actual repository files
+6. call out blockers when the repo still is not runnable on a clean machine
 
 For merge requests:
 

@@ -8,6 +8,7 @@
     "build": "tsc --pretty false --noEmit",
     "demo:bootstrap-plan": "tsx src/demo/bootstrap-plan.ts",
     "demo:golden-path": "tsx src/demo/golden-path.ts",
+    "demo:remote-bootstrap": "tsx src/demo/remote-bootstrap.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "verify:full": "npm run build && npm test && npm run demo:golden-path",

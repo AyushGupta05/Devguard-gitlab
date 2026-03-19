@@ -1,5 +1,6 @@
 export * from "./contracts.js";
 export * from "./demo/golden-path.js";
+export * from "./itworkshere/remote-bootstrap.js";
 export * from "./itworkshere/bootstrap.js";
 export * from "./itworkshere/analysis.js";
 export * from "./itworkshere/failure-intake.js";
