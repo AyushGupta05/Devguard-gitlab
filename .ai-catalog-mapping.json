@@ -14,10 +14,10 @@
         }
       },
       "latest_sync": {
-        "git_tag": "v3",
-        "catalog_version": "1.1.0",
-        "synced_at": "2026-03-18T13:34:13.782Z",
-        "definition_hash": "e26fd5c877e2e758"
+        "git_tag": "v4",
+        "catalog_version": "1.2.0",
+        "synced_at": "2026-03-18T23:54:25.375Z",
+        "definition_hash": "7d648453e20af081"
       }
     }
   },
@@ -35,10 +35,10 @@
         }
       },
       "latest_sync": {
-        "git_tag": "v3",
-        "catalog_version": "1.0.0",
-        "synced_at": "2026-03-18T13:34:14.511Z",
-        "definition_hash": "01e57514e2efb287"
+        "git_tag": "v4",
+        "catalog_version": "1.1.0",
+        "synced_at": "2026-03-18T23:54:25.994Z",
+        "definition_hash": "a72df941f1fdc669"
       }
     },
     "flows/reproguard-prevention.yml": {
@@ -54,10 +54,10 @@
         }
       },
       "latest_sync": {
-        "git_tag": "v3",
-        "catalog_version": "1.0.0",
-        "synced_at": "2026-03-18T13:34:15.967Z",
-        "definition_hash": "bbddcda108da7abb"
+        "git_tag": "v4",
+        "catalog_version": "1.1.0",
+        "synced_at": "2026-03-18T23:54:26.749Z",
+        "definition_hash": "3840e67134d89311"
       }
     }
   }
