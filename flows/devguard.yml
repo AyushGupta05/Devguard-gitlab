@@ -73,7 +73,7 @@ definition:
         - read_files
         - get_repository_file
         - create_merge_request_note
-        - create_or_update_merge_request_label
+        - update_merge_request
       ui_log_events:
         - on_agent_final_answer
         - on_tool_execution_success
@@ -105,7 +105,7 @@ definition:
           You are the DevGuard router. Read the trigger context and output exactly one routing decision.
 
           Rules:
-          - MR opened, updated, or reviewed → "prevention_and_security"
+          - MR opened, updated, or reviewed → "prevention" (security agent is triggered by the same MR event via a separate flow)
           - Pipeline failed, job failed, CI error → "reactive"
           - Local setup, how to run, clone help, bootstrap → "bootstrap"
           - Default → "bootstrap"
@@ -220,11 +220,11 @@ definition:
 
   routers:
     - from: "router"
-      condition: "prevention_and_security"
-      to:
-        parallel:
-          - "prevention_agent"
-          - "security_agent"
+      condition: "prevention"
+      to: "prevention_agent"
+    - from: "router"
+      condition: "security"
+      to: "security_agent"
     - from: "router"
       condition: "reactive"
       to: "reactive_agent"

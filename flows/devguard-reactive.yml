@@ -23,7 +23,7 @@ definition:
         - find_files
         - get_repository_file
         - create_merge_request_note
-        - create_or_update_merge_request_label
+        - update_merge_request
       ui_log_events:
         - on_agent_final_answer
         - on_tool_execution_success
