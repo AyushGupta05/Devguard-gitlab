@@ -3,7 +3,8 @@ import {
   predictionMatchSchema,
   type CausalAnalysis,
   type FailureContext,
-  type PredictionMatch
+  type PredictionMatch,
+  type Risk
 } from "../contracts.js";
 import { extractFailureSignature } from "./failure-intake.js";
 
@@ -20,18 +21,20 @@ export function matchPrediction(failureContext: FailureContext): PredictionMatch
     });
   }
 
+  // Match runtime mismatch: any TypeError/ReferenceError when a runtime gap was predicted
   const runtimeRisk = priorRiskReport.risks.find((risk) => risk.type === "RUNTIME_MISMATCH");
-  if (runtimeRisk && /toSorted is not a function/i.test(signature)) {
+  if (runtimeRisk && isRuntimeFailureSignature(signature)) {
     return predictionMatchSchema.parse({
       status: "CONFIRMED",
       confidence: 0.98,
       matchedRiskId: runtimeRisk.riskId,
-      rationale: "The failure signature matches the Node 20 API mismatch predicted before merge."
+      rationale: "The failure signature matches the runtime API mismatch predicted before merge."
     });
   }
 
-  const ghostRisk = priorRiskReport.risks.find((risk) => risk.type === "GHOST_VARIABLE");
-  if (ghostRisk && /REDIS_URL/i.test(signature)) {
+  // Match ghost variable: find the specific ghost risk whose variable appears in the error log
+  const ghostRisk = findMatchingGhostRisk(priorRiskReport.risks, signature);
+  if (ghostRisk) {
     return predictionMatchSchema.parse({
       status: "CONFIRMED",
       confidence: 0.95,
@@ -66,8 +69,12 @@ export function createCausalAnalysis(
   predictionMatch: PredictionMatch
 ): CausalAnalysis {
   const signature = extractFailureSignature(failureContext.errorLog);
+  const matchedRisk = failureContext.priorRiskReport?.risks.find(
+    (r) => r.riskId === predictionMatch.matchedRiskId
+  );
 
-  if (predictionMatch.status === "CONFIRMED" && /toSorted is not a function/i.test(signature)) {
+  if (predictionMatch.status === "CONFIRMED" && matchedRisk?.type === "RUNTIME_MISMATCH") {
+    const { ciVersion, localMajor } = extractVersionsFromRisk(matchedRisk);
     return causalAnalysisSchema.parse({
       runId: failureContext.runId,
       projectPath: failureContext.projectPath,
@@ -76,18 +83,19 @@ export function createCausalAnalysis(
       status: predictionMatch.status,
       matchedRiskId: predictionMatch.matchedRiskId,
       confidence: 0.98,
-      rootCause: "CI is running Node 18 while the merge request introduces Array.prototype.toSorted(), which requires Node 20.",
+      rootCause: `CI is running Node ${ciVersion} while the merge request introduces APIs that require Node ${localMajor}.`,
       evidence: [
-        "Failed job log contains: TypeError: invoices.toSorted is not a function",
-        "The stored ReproGuard report warned that CI was still on node:18-alpine",
-        "The merge request patch introduces toSorted() in src/billing.js"
+        `Failed job log contains: ${signature}`,
+        `The stored ReproGuard report warned: ${matchedRisk.title}`,
+        ...matchedRisk.evidence.map((e) => `${e.path}: ${e.excerpt}`)
       ],
-      fixDirection: "Update .gitlab-ci.yml to node:20-alpine and keep the new API usage.",
+      fixDirection: `Update .gitlab-ci.yml to node:${localMajor}-alpine to match the local runtime.`,
       humanReviewRequired: false
     });
   }
 
-  if (predictionMatch.status === "CONFIRMED" && /REDIS_URL/i.test(signature)) {
+  if (predictionMatch.status === "CONFIRMED" && matchedRisk?.type === "GHOST_VARIABLE") {
+    const varName = extractVarNameFromGhostRisk(matchedRisk);
     return causalAnalysisSchema.parse({
       runId: failureContext.runId,
       projectPath: failureContext.projectPath,
@@ -96,12 +104,12 @@ export function createCausalAnalysis(
       status: predictionMatch.status,
       matchedRiskId: predictionMatch.matchedRiskId,
       confidence: 0.95,
-      rootCause: "The application requires REDIS_URL at runtime, but the variable is not declared in the example environment or CI.",
+      rootCause: `The application requires ${varName} at runtime, but the variable is not declared in the example environment or CI.`,
       evidence: [
-        "Failed job log references REDIS_URL",
-        "The stored ReproGuard report warned that REDIS_URL was undeclared"
+        `Failed job log references ${varName}`,
+        `The stored ReproGuard report warned that ${varName} was undeclared`
       ],
-      fixDirection: "Add REDIS_URL to .env.example and define it in GitLab CI/CD variables.",
+      fixDirection: `Add ${varName} to .env.example and define it in GitLab CI/CD variables.`,
       humanReviewRequired: false
     });
   }
@@ -126,4 +134,43 @@ export function createCausalAnalysis(
 
 export function summarizeCausalAnalysis(causalAnalysis: CausalAnalysis) {
   return `${causalAnalysis.status}: ${causalAnalysis.rootCause}`;
+}
+
+function isRuntimeFailureSignature(signature: string): boolean {
+  return /TypeError:.+is not a function/i.test(signature) ||
+    /TypeError:.+is not a constructor/i.test(signature) ||
+    /ReferenceError:.+is not defined/i.test(signature) ||
+    /TypeError: Cannot read propert/i.test(signature);
+}
+
+function findMatchingGhostRisk(risks: Risk[], signature: string): Risk | undefined {
+  return risks.find((risk) => {
+    if (risk.type !== "GHOST_VARIABLE") return false;
+    const varName = extractVarNameFromGhostRisk(risk);
+    if (!varName) return false;
+    const escaped = varName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(escaped, "i").test(signature);
+  });
+}
+
+function extractVarNameFromGhostRisk(risk: Risk): string {
+  // Primary: use evidence excerpt which stores the variable name directly
+  const excerpt = risk.evidence[0]?.excerpt;
+  if (excerpt) return excerpt;
+  // Fallback: parse from title "Undeclared environment variable: VAR_NAME"
+  const match = risk.title.match(/Undeclared environment variable:\s*(.+)/);
+  return match?.[1]?.trim() ?? "";
+}
+
+function extractVersionsFromRisk(risk: Risk): { ciVersion: string; localMajor: string } {
+  // Risk title format: "Node runtime mismatch: local 20.11.0 vs CI 18-alpine"
+  const titleMatch = risk.title.match(/local ([\d.]+) vs CI (.+)/);
+  const localFull = titleMatch?.[1] ?? risk.evidence[0]?.excerpt ?? "20";
+  const ciTag = titleMatch?.[2] ?? risk.evidence[1]?.excerpt ?? "18-alpine";
+
+  const localMajor = localFull.match(/^(\d+)/)?.[1] ?? localFull;
+  // Extract numeric major from CI tag like "18-alpine" → "18"
+  const ciVersion = ciTag.match(/^(\d+)/)?.[1] ?? ciTag;
+
+  return { ciVersion, localMajor };
 }

@@ -40,10 +40,20 @@ export function createFailureContext(options: FailureIntakeOptions): FailureCont
 }
 
 export function extractFailureSignature(errorLog: string) {
-  const match = errorLog.match(/TypeError: .+/);
+  // Ordered by specificity — first match wins
+  const errorPatterns = [
+    /TypeError: .+/,
+    /ReferenceError: .+/,
+    /SyntaxError: .+/,
+    /Error: Cannot find module .+/,
+    /Error: ENOENT: .+/,
+    /Error: EACCES: .+/,
+    /Error: .+/
+  ];
 
-  if (match) {
-    return match[0];
+  for (const pattern of errorPatterns) {
+    const match = errorLog.match(pattern);
+    if (match) return match[0];
   }
 
   const firstMeaningfulLine = errorLog

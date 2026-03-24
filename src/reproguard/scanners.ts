@@ -65,6 +65,7 @@ export function collectEnvironmentMap(options: ScanOptions): EnvironmentMap {
     mrIid: options.mrIid,
     pipelineId: options.pipelineId ?? null,
     generatedAt: new Date().toISOString(),
+    rootDir: options.rootDir,
     localRuntimes: {
       node: runtimeValue(options.rootDir, ".nvmrc"),
       python: runtimeValue(options.rootDir, ".python-version")
@@ -89,7 +90,8 @@ export function collectEnvironmentMap(options: ScanOptions): EnvironmentMap {
 export function detectDeterministicSignals(environmentMap: EnvironmentMap): PreventionSignal[] {
   return [
     ...detectRuntimeMismatch(environmentMap),
-    ...detectGhostVariables(environmentMap)
+    ...detectGhostVariables(environmentMap),
+    ...detectTimezoneAssumptions(environmentMap)
   ];
 }
 
@@ -235,20 +237,106 @@ function extractMajor(runtime: string) {
 
 function findProcessEnvReferences(contents: string) {
   const references: Array<{ variable: string; line: number }> = [];
+  const seen = new Set<string>(); // deduplicate per-line
   const lines = contents.split(/\r?\n/);
 
-  for (const [index, line] of lines.entries()) {
-    const matcher = line.matchAll(/process\.env\.([A-Z0-9_]+)/g);
+  const patterns = [
+    // process.env.VAR_NAME (dot notation)
+    /process\.env\.([A-Z][A-Z0-9_]*)/g,
+    // process.env["VAR_NAME"] or process.env['VAR_NAME'] (bracket notation)
+    /process\.env\[["']([A-Z][A-Z0-9_]*)["']\]/g,
+    // import.meta.env.VAR_NAME (Vite / ESM)
+    /import\.meta\.env\.([A-Z][A-Z0-9_]*)/g,
+    // os.environ["VAR_NAME"] or os.environ['VAR_NAME'] (Python)
+    /os\.environ\[["']([A-Z][A-Z0-9_]*)["']\]/g,
+    // os.environ.get("VAR_NAME") (Python)
+    /os\.environ\.get\(["']([A-Z][A-Z0-9_]*)["']/g,
+    // process.env[variable] dynamic — skip (cannot know variable name statically)
+  ];
 
-    for (const match of matcher) {
-      references.push({
-        variable: match[1],
-        line: index + 1
-      });
+  for (const [index, line] of lines.entries()) {
+    seen.clear();
+    for (const pattern of patterns) {
+      for (const match of line.matchAll(pattern)) {
+        const variable = match[1];
+        if (!seen.has(variable)) {
+          seen.add(variable);
+          references.push({ variable, line: index + 1 });
+        }
+      }
     }
   }
 
   return references;
+}
+
+export function detectTimezoneAssumptions(environmentMap: EnvironmentMap): PreventionSignal[] {
+  const signals: PreventionSignal[] = [];
+
+  // Patterns that assume the local system timezone — safe in local dev, broken in CI/Docker
+  const timezoneUnsafePatterns: Array<{ pattern: RegExp; note: string }> = [
+    {
+      pattern: /new\s+Intl\.DateTimeFormat\s*\([^)]*\)(?!\s*\.resolvedOptions)/,
+      note: "Intl.DateTimeFormat without explicit timeZone option"
+    },
+    {
+      pattern: /\.toLocaleString\s*\(\s*\)/,
+      note: "Date.toLocaleString() without locale or timezone argument"
+    },
+    {
+      pattern: /\.toLocaleDateString\s*\(\s*\)/,
+      note: "Date.toLocaleDateString() without locale or timezone argument"
+    },
+    {
+      pattern: /\.toLocaleTimeString\s*\(\s*\)/,
+      note: "Date.toLocaleTimeString() without locale or timezone argument"
+    }
+  ];
+
+  const baseDir = environmentMap.rootDir ?? process.cwd();
+
+  // Only scan changed files to keep signal relevant to this MR
+  const filesToScan = environmentMap.changedFiles.filter((f) =>
+    /\.(js|jsx|ts|tsx|py)$/.test(f)
+  );
+
+  for (const filePath of filesToScan) {
+    const absPath = join(baseDir, filePath);
+    if (!existsSync(absPath)) continue;
+    let contents: string;
+    try {
+      contents = readFileSync(absPath, "utf8");
+    } catch {
+      continue;
+    }
+
+    const lines = contents.split(/\r?\n/);
+    for (const [index, line] of lines.entries()) {
+      for (const { pattern, note } of timezoneUnsafePatterns) {
+        if (pattern.test(line)) {
+          signals.push({
+            type: "TIMEZONE_ASSUMPTION",
+            severity: "MEDIUM",
+            confidence: 0.82,
+            title: `Timezone assumption detected: ${note}`,
+            description: `${filePath} line ${index + 1} uses a date/time API without an explicit timezone. This produces different output depending on the server's TZ setting, which differs between local machines and CI/Docker containers.`,
+            affectedFiles: [filePath],
+            evidence: [
+              {
+                path: filePath,
+                line: index + 1,
+                excerpt: line.trim().slice(0, 120)
+              }
+            ],
+            suggestedFix: "Pass an explicit { timeZone: 'UTC' } option or use a UTC-based date library to ensure consistent output across environments."
+          });
+          break; // one signal per pattern match per line is enough
+        }
+      }
+    }
+  }
+
+  return signals;
 }
 
 export function fixtureRoot(...parts: string[]) {

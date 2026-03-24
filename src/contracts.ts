@@ -43,6 +43,7 @@ export const environmentMapSchema = z.object({
   mrIid: z.number().int().nonnegative(),
   pipelineId: z.number().int().nonnegative().nullable(),
   generatedAt: z.string(),
+  rootDir: z.string().optional(),
   localRuntimes: z.object({
     node: runtimeSchema.optional(),
     python: runtimeSchema.optional()
