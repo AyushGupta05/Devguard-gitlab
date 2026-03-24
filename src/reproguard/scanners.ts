@@ -91,7 +91,9 @@ export function detectDeterministicSignals(environmentMap: EnvironmentMap): Prev
   return [
     ...detectRuntimeMismatch(environmentMap),
     ...detectGhostVariables(environmentMap),
-    ...detectTimezoneAssumptions(environmentMap)
+    ...detectTimezoneAssumptions(environmentMap),
+    ...detectDockerImageDrift(environmentMap),
+    ...detectSecretLeaks(environmentMap)
   ];
 }
 
@@ -273,10 +275,15 @@ function findProcessEnvReferences(contents: string) {
 export function detectTimezoneAssumptions(environmentMap: EnvironmentMap): PreventionSignal[] {
   const signals: PreventionSignal[] = [];
 
-  // Patterns that assume the local system timezone — safe in local dev, broken in CI/Docker
-  const timezoneUnsafePatterns: Array<{ pattern: RegExp; note: string }> = [
+  // Patterns that assume the local system timezone — safe in local dev, broken in CI/Docker.
+  // Each entry: pattern matches a potentially unsafe call; safePattern matches when a timezone
+  // option is explicitly provided on the same line (safe). Flag only when unsafe matches AND
+  // safe does not match.
+  const timezoneUnsafePatterns: Array<{ pattern: RegExp; safePattern?: RegExp; note: string }> = [
     {
-      pattern: /new\s+Intl\.DateTimeFormat\s*\([^)]*\)(?!\s*\.resolvedOptions)/,
+      // Intl.DateTimeFormat constructor call — flag unless timeZone: is on the same line
+      pattern: /new\s+Intl\.DateTimeFormat\s*\(/,
+      safePattern: /timeZone\s*:/,
       note: "Intl.DateTimeFormat without explicit timeZone option"
     },
     {
@@ -312,8 +319,8 @@ export function detectTimezoneAssumptions(environmentMap: EnvironmentMap): Preve
 
     const lines = contents.split(/\r?\n/);
     for (const [index, line] of lines.entries()) {
-      for (const { pattern, note } of timezoneUnsafePatterns) {
-        if (pattern.test(line)) {
+      for (const { pattern, safePattern, note } of timezoneUnsafePatterns) {
+        if (pattern.test(line) && !(safePattern?.test(line))) {
           signals.push({
             type: "TIMEZONE_ASSUMPTION",
             severity: "MEDIUM",
@@ -330,7 +337,149 @@ export function detectTimezoneAssumptions(environmentMap: EnvironmentMap): Preve
             ],
             suggestedFix: "Pass an explicit { timeZone: 'UTC' } option or use a UTC-based date library to ensure consistent output across environments."
           });
-          break; // one signal per pattern match per line is enough
+          break; // one signal per line is enough
+        }
+      }
+    }
+  }
+
+  return signals;
+}
+
+export function detectDockerImageDrift(environmentMap: EnvironmentMap): PreventionSignal[] {
+  const signals: PreventionSignal[] = [];
+  const ciPath = environmentMap.ciRuntimes.node?.source ?? ".gitlab-ci.yml";
+  const baseDir = environmentMap.rootDir ?? process.cwd();
+  const ciFilePath = join(baseDir, ciPath);
+
+  if (!existsSync(ciFilePath)) return signals;
+
+  let ciContents: string;
+  try {
+    ciContents = readFileSync(ciFilePath, "utf8");
+  } catch {
+    return signals;
+  }
+
+  const lines = ciContents.split(/\r?\n/);
+  for (const [index, line] of lines.entries()) {
+    // Match "image: something:latest" or "image: something" with no tag (implicitly latest)
+    const latestMatch = line.match(/^\s*image:\s*["']?([^"'\s]+):latest["']?/i);
+    if (latestMatch) {
+      signals.push({
+        type: "DOCKER_IMAGE_DRIFT",
+        severity: "MEDIUM",
+        confidence: 0.90,
+        title: `CI uses unpinned :latest image: ${latestMatch[1]}`,
+        description: `The CI config at ${ciPath} line ${index + 1} pulls ${latestMatch[1]}:latest. Unpinned images change without warning, causing builds that pass today to silently break tomorrow when the upstream image updates.`,
+        affectedFiles: [ciPath],
+        evidence: [
+          {
+            path: ciPath,
+            line: index + 1,
+            excerpt: line.trim()
+          }
+        ],
+        suggestedFix: `Pin the image to a specific digest or version tag, e.g. ${latestMatch[1]}:1.2.3 or ${latestMatch[1]}@sha256:<digest>.`
+      });
+    }
+  }
+
+  // Also warn if Dockerfile exists and uses :latest
+  const dockerfilePath = join(baseDir, "Dockerfile");
+  if (existsSync(dockerfilePath)) {
+    let dockerContents: string;
+    try {
+      dockerContents = readFileSync(dockerfilePath, "utf8");
+    } catch {
+      return signals;
+    }
+    const dockerLines = dockerContents.split(/\r?\n/);
+    for (const [index, line] of dockerLines.entries()) {
+      if (/^\s*FROM\s+\S+:latest\b/i.test(line)) {
+        signals.push({
+          type: "DOCKER_IMAGE_DRIFT",
+          severity: "MEDIUM",
+          confidence: 0.88,
+          title: "Dockerfile uses :latest base image",
+          description: `Dockerfile line ${index + 1} uses a :latest base image. This makes builds non-reproducible across machines and over time.`,
+          affectedFiles: ["Dockerfile"],
+          evidence: [{ path: "Dockerfile", line: index + 1, excerpt: line.trim() }],
+          suggestedFix: "Pin the Dockerfile FROM instruction to a specific version digest."
+        });
+      }
+    }
+  }
+
+  return signals;
+}
+
+// Known secret patterns: value + a note for the warning message
+const SECRET_PATTERNS: Array<{ pattern: RegExp; label: string; severity: "HIGH" | "MEDIUM" }> = [
+  { pattern: /\bsk_live_[a-zA-Z0-9]{20,}\b/, label: "Stripe live secret key", severity: "HIGH" },
+  { pattern: /\bAKIA[0-9A-Z]{16}\b/, label: "AWS Access Key ID", severity: "HIGH" },
+  { pattern: /\bAIza[0-9A-Za-z_-]{35}\b/, label: "Google API key", severity: "HIGH" },
+  { pattern: /\bghp_[a-zA-Z0-9]{36}\b/, label: "GitHub Personal Access Token", severity: "HIGH" },
+  { pattern: /\bglpat-[a-zA-Z0-9_-]{20,}\b/, label: "GitLab Personal Access Token", severity: "HIGH" },
+  { pattern: /\bxox[baprs]-[0-9a-zA-Z-]{10,}\b/, label: "Slack token", severity: "HIGH" },
+  { pattern: /-----BEGIN (RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----/, label: "Private key material", severity: "HIGH" },
+  // Generic: assignment of a long hex/base64 string to a name that looks credential-like
+  {
+    pattern: /(?:api[_-]?key|secret|password|passwd|token|credential)\s*[=:]\s*["'][a-zA-Z0-9+/=_-]{20,}["']/i,
+    label: "Potential hardcoded credential",
+    severity: "MEDIUM"
+  }
+];
+
+// Files that are allowed to contain credential-like patterns (templates, examples, docs)
+const SECRET_ALLOWLIST = [".env.example", ".env.sample", ".env.template", "README.md", "CHANGELOG.md"];
+
+export function detectSecretLeaks(environmentMap: EnvironmentMap): PreventionSignal[] {
+  const signals: PreventionSignal[] = [];
+  const baseDir = environmentMap.rootDir ?? process.cwd();
+
+  const filesToScan = environmentMap.changedFiles.filter((f) => {
+    const lower = f.toLowerCase();
+    return !SECRET_ALLOWLIST.some((allowed) => lower.endsWith(allowed)) &&
+      /\.(js|jsx|ts|tsx|py|rb|go|java|json|yml|yaml|sh|env)$/.test(lower);
+  });
+
+  for (const filePath of filesToScan) {
+    const absPath = join(baseDir, filePath);
+    if (!existsSync(absPath)) continue;
+
+    let contents: string;
+    try {
+      contents = readFileSync(absPath, "utf8");
+    } catch {
+      continue;
+    }
+
+    const lines = contents.split(/\r?\n/);
+    for (const [index, line] of lines.entries()) {
+      // Skip commented-out lines
+      if (/^\s*(#|\/\/)/.test(line)) continue;
+
+      for (const { pattern, label, severity } of SECRET_PATTERNS) {
+        if (pattern.test(line)) {
+          signals.push({
+            type: "SECURITY_LEAK",
+            severity,
+            confidence: 0.88,
+            title: `Potential secret leak: ${label}`,
+            description: `${filePath} line ${index + 1} appears to contain a hardcoded ${label.toLowerCase()}. Committing credentials exposes them to anyone with repository access and to CI logs.`,
+            affectedFiles: [filePath],
+            evidence: [
+              {
+                path: filePath,
+                line: index + 1,
+                // Redact the actual value — show the label only
+                excerpt: `[${label} detected — value redacted]`
+              }
+            ],
+            suggestedFix: `Remove the hardcoded value, store it in an environment variable, and rotate the credential immediately if it has already been pushed.`
+          });
+          break; // one signal per line
         }
       }
     }

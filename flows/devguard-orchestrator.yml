@@ -1,0 +1,231 @@
+name: "DevGuard — Orchestrator"
+description: "One trigger. Four agents. Zero bottlenecks. When an MR is opened, Prevention and Security agents run in parallel. When a pipeline fails, the Reactive agent correlates errors against prevention reports. When a developer needs local setup help, the Bootstrap agent produces a complete plan. DevGuard eliminates 'works on my machine' failures across the entire development lifecycle."
+public: true
+definition:
+  version: v1
+  environment: ambient
+  components:
+    # -------------------------------------------------------------------------
+    # Router — determines which agents to activate based on trigger context
+    # -------------------------------------------------------------------------
+    - name: "router"
+      type: AgentComponent
+      prompt_id: "router_prompt"
+      inputs:
+        - "context:goal"
+      toolset:
+        - get_merge_request
+        - get_pipeline_errors
+      ui_log_events:
+        - on_agent_final_answer
+
+    # -------------------------------------------------------------------------
+    # Prevention agent — runs at MR creation
+    # -------------------------------------------------------------------------
+    - name: "prevention_agent"
+      type: AgentComponent
+      prompt_id: "prevention_prompt"
+      inputs:
+        - "router.output"
+      toolset:
+        - get_merge_request
+        - list_merge_request_diffs
+        - list_all_merge_request_notes
+        - grep
+        - read_file
+        - read_files
+        - list_dir
+        - find_files
+        - get_repository_file
+        - create_merge_request_note
+      ui_log_events:
+        - on_agent_final_answer
+        - on_tool_execution_success
+
+    # -------------------------------------------------------------------------
+    # Security agent — runs in parallel with Prevention at MR creation
+    # -------------------------------------------------------------------------
+    - name: "security_agent"
+      type: AgentComponent
+      prompt_id: "security_prompt"
+      inputs:
+        - "router.output"
+      toolset:
+        - get_merge_request
+        - list_merge_request_diffs
+        - grep
+        - read_file
+        - read_files
+        - get_repository_file
+        - create_merge_request_note
+      ui_log_events:
+        - on_agent_final_answer
+        - on_tool_execution_success
+
+    # -------------------------------------------------------------------------
+    # Reactive agent — runs when a pipeline fails
+    # -------------------------------------------------------------------------
+    - name: "reactive_agent"
+      type: AgentComponent
+      prompt_id: "reactive_prompt"
+      inputs:
+        - "router.output"
+      toolset:
+        - get_merge_request
+        - list_merge_request_diffs
+        - list_all_merge_request_notes
+        - get_pipeline_errors
+        - get_job_logs
+        - grep
+        - read_file
+        - read_files
+        - get_repository_file
+        - create_merge_request_note
+        - create_or_update_merge_request_label
+      ui_log_events:
+        - on_agent_final_answer
+        - on_tool_execution_success
+
+    # -------------------------------------------------------------------------
+    # Bootstrap agent — runs on manual trigger
+    # -------------------------------------------------------------------------
+    - name: "bootstrap_agent"
+      type: AgentComponent
+      prompt_id: "bootstrap_prompt"
+      inputs:
+        - "router.output"
+      toolset:
+        - grep
+        - read_file
+        - read_files
+        - list_dir
+        - find_files
+        - get_repository_file
+      ui_log_events:
+        - on_agent_final_answer
+        - on_tool_execution_success
+
+  prompts:
+    - prompt_id: "router_prompt"
+      name: "Router Prompt"
+      unit_primitives:
+        - duo_chat
+      prompt_template:
+        system: |
+          You are the DevGuard orchestrator router. Your only job is to read the trigger context and output a routing decision.
+
+          Triggers:
+          - MR opened or updated → route to: prevention_and_security
+          - Pipeline or job failed → route to: reactive
+          - User asked about local setup, "how do I run this", "get it working" → route to: bootstrap
+          - Anything else → route to: bootstrap (safe default)
+
+          Output exactly one of these strings (nothing else):
+          - prevention_and_security
+          - reactive
+          - bootstrap
+        user: |
+          Trigger context: {{goal}}
+        placeholder: history
+      params:
+        timeout: 30
+
+    - prompt_id: "prevention_prompt"
+      name: "Prevention Prompt"
+      unit_primitives:
+        - duo_chat
+      prompt_template:
+        system: |
+          You are DevGuard Prevention. Scan this merge request for environment reproducibility risks:
+          1. Runtime mismatch — local toolchain vs CI image
+          2. Ghost variable — env var in code but absent from .env.example
+          3. Docker image drift — :latest tags in CI or Dockerfile
+          4. Timezone assumption — date formatting without explicit timeZone
+
+          Cite file:line for every risk. Confidence ≥ 60% required to report.
+          End comment with hidden JSON payload: <!-- reproguard:risk-report:start {...} reproguard:risk-report:end -->
+        user: "{{goal}}"
+        placeholder: history
+      params:
+        timeout: 120
+
+    - prompt_id: "security_prompt"
+      name: "Security Prompt"
+      unit_primitives:
+        - duo_chat
+      prompt_template:
+        system: |
+          You are DevGuard Security. Scan every changed file for hardcoded secrets.
+
+          Severity levels: CRITICAL (live keys, private keys, AWS AKIAs) → HIGH (PATs, Slack tokens, DB URLs with passwords) → MEDIUM (test keys, generic assignments) → LOW (placeholders, hostnames).
+
+          Never output actual secret values — show masked preview only.
+          For CRITICAL: add a blocking merge warning.
+          If nothing found: "DevGuard Security: no credentials detected."
+        user: "{{goal}}"
+        placeholder: history
+      params:
+        timeout: 120
+
+    - prompt_id: "reactive_prompt"
+      name: "Reactive Prompt"
+      unit_primitives:
+        - duo_chat
+      prompt_template:
+        system: |
+          You are DevGuard Reactive. A CI job failed. Find the root cause and generate a fix.
+
+          1. Extract failure signature from job log
+          2. Find the DevGuard prevention report in MR notes (reproguard:risk-report:start)
+          3. Classify: CONFIRMED / PARTIAL / UNINVESTIGATED
+          4. Generate fix bundle (CI config update, .env.example update, apply instructions)
+          5. Post MR comment with confidence % and hidden causal analysis JSON payload
+        user: "{{goal}}"
+        placeholder: history
+      params:
+        timeout: 180
+
+    - prompt_id: "bootstrap_prompt"
+      name: "Bootstrap Prompt"
+      unit_primitives:
+        - duo_chat
+      prompt_template:
+        system: |
+          You are DevGuard Bootstrap. Help a developer get this repository running locally.
+
+          1. Read README.md for setup instructions
+          2. Detect runtime stack (Node/Python/Ruby/Go) and version
+          3. Detect service dependencies from package.json and docker-compose.yml
+          4. Find missing env vars — classify as secret or config
+          5. Produce a numbered setup plan with copy-paste commands
+
+          Output a markdown table of: required secrets, external services, and ordered setup steps.
+        user: "{{goal}}"
+        placeholder: history
+      params:
+        timeout: 120
+
+  routers:
+    - from: "router"
+      condition: "prevention_and_security"
+      to:
+        parallel:
+          - "prevention_agent"
+          - "security_agent"
+    - from: "router"
+      condition: "reactive"
+      to: "reactive_agent"
+    - from: "router"
+      condition: "bootstrap"
+      to: "bootstrap_agent"
+    - from: "prevention_agent"
+      to: "end"
+    - from: "security_agent"
+      to: "end"
+    - from: "reactive_agent"
+      to: "end"
+    - from: "bootstrap_agent"
+      to: "end"
+
+  flow:
+    entry_point: "router"

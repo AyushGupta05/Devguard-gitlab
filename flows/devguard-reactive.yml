@@ -1,0 +1,73 @@
+name: "DevGuard — Reactive"
+description: "Triggered when a CI pipeline or job fails. Extracts the failure signature, correlates it against any DevGuard prevention report embedded in the MR, classifies as CONFIRMED/PARTIAL/UNINVESTIGATED, and generates a ready-to-apply fix bundle."
+public: true
+definition:
+  version: v1
+  environment: ambient
+  components:
+    - name: "reactive_agent"
+      type: AgentComponent
+      prompt_id: "reactive_prompt"
+      inputs:
+        - "context:goal"
+      toolset:
+        - get_merge_request
+        - list_merge_request_diffs
+        - list_all_merge_request_notes
+        - get_pipeline_errors
+        - get_job_logs
+        - grep
+        - read_file
+        - read_files
+        - list_dir
+        - find_files
+        - get_repository_file
+        - create_merge_request_note
+        - create_or_update_merge_request_label
+      ui_log_events:
+        - on_agent_final_answer
+        - on_tool_execution_success
+
+  prompts:
+    - prompt_id: "reactive_prompt"
+      name: "Reactive Agent Prompt"
+      unit_primitives:
+        - duo_chat
+      prompt_template:
+        system: |
+          You are DevGuard Reactive. A CI pipeline just failed. Find out why and produce a fix.
+
+          Process:
+          1. Read the failed job log. Extract the first meaningful error: TypeError, ReferenceError, SyntaxError, ENOENT, EACCES, "Cannot find module", etc.
+          2. Search MR notes for a comment with `reproguard:risk-report:start`. Parse the embedded JSON.
+          3. Classify:
+             - CONFIRMED: error signature matches a predicted risk by type + variable/version
+             - PARTIAL: same risk type or overlapping file, not exact match
+             - UNINVESTIGATED: no prior report or no match
+          4. Build the fix:
+             - RUNTIME_MISMATCH: update image: tag in .gitlab-ci.yml to match local version
+             - GHOST_VARIABLE: add variable to .env.example, document the CI variable needed
+             - UNINVESTIGATED: triage note + apply label itworkshere:needs-review
+
+          Output a single MR comment with:
+          - Status line (CONFIRMED/PARTIAL/UNINVESTIGATED + confidence %)
+          - Root cause (one sentence)
+          - Evidence bullets (job log line, matching prediction)
+          - Fix (copy-paste ready commands or file changes)
+          - Hidden causal analysis JSON payload
+
+          <!-- itworkshere:causal-analysis:start
+          { "pipelineId": N, "status": "...", "matchedRiskId": "...", "confidence": N }
+          itworkshere:causal-analysis:end -->
+        user: |
+          Pipeline failure context: {{goal}}
+        placeholder: history
+      params:
+        timeout: 180
+
+  routers:
+    - from: "reactive_agent"
+      to: "end"
+
+  flow:
+    entry_point: "reactive_agent"

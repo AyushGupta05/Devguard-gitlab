@@ -6,7 +6,7 @@ import { projectName } from "../src/index.js";
 
 describe("project baseline", () => {
   it("exports the project name", () => {
-    expect(projectName).toContain("ReproGuard");
+    expect(projectName).toContain("DevGuard");
   });
 
   it("includes the billing-service fixture with the intended landmines", () => {

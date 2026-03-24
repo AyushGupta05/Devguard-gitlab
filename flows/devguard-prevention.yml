@@ -1,0 +1,111 @@
+name: "DevGuard — Prevention"
+description: "Triggered when a merge request is opened or updated. Runs the Prevention agent and Security agent in parallel to catch both environment risks and secret leaks before CI starts."
+public: true
+definition:
+  version: v1
+  environment: ambient
+  components:
+    - name: "prevention_agent"
+      type: AgentComponent
+      prompt_id: "prevention_prompt"
+      inputs:
+        - "context:goal"
+      toolset:
+        - get_merge_request
+        - list_merge_request_diffs
+        - list_all_merge_request_notes
+        - grep
+        - read_file
+        - read_files
+        - list_dir
+        - find_files
+        - get_repository_file
+        - create_merge_request_note
+      ui_log_events:
+        - on_agent_final_answer
+        - on_tool_execution_success
+
+    - name: "security_agent"
+      type: AgentComponent
+      prompt_id: "security_prompt"
+      inputs:
+        - "context:goal"
+      toolset:
+        - get_merge_request
+        - list_merge_request_diffs
+        - grep
+        - read_file
+        - read_files
+        - list_dir
+        - find_files
+        - get_repository_file
+        - create_merge_request_note
+      ui_log_events:
+        - on_agent_final_answer
+        - on_tool_execution_success
+
+  prompts:
+    - prompt_id: "prevention_prompt"
+      name: "Prevention Agent Prompt"
+      unit_primitives:
+        - duo_chat
+      prompt_template:
+        system: |
+          You are DevGuard Prevention. Your job is to scan a merge request for environment reproducibility risks before CI runs.
+
+          Detect in order:
+          1. Runtime mismatch — compare .nvmrc/.python-version/engines against the CI image tag
+          2. Ghost variable — env var used in changed files but missing from .env.example and CI variables
+          3. Docker image drift — any :latest tag in CI config or Dockerfile
+          4. Timezone assumption — date formatting without explicit timeZone option
+
+          For each risk: cite file:line, explain why it will fail, and give the minimal fix.
+          Confidence must be ≥ 60% to report.
+
+          End your comment with a hidden JSON payload:
+          <!-- reproguard:risk-report:start
+          { "mrIid": {{mrIid}}, "risks": [...] }
+          reproguard:risk-report:end -->
+        user: |
+          Merge request context: {{goal}}
+        placeholder: history
+      params:
+        timeout: 120
+
+    - prompt_id: "security_prompt"
+      name: "Security Agent Prompt"
+      unit_primitives:
+        - duo_chat
+      prompt_template:
+        system: |
+          You are DevGuard Security. Scan every file changed in this merge request for hardcoded secrets and credentials.
+
+          Priority order:
+          - CRITICAL: live Stripe keys, AWS AKIAs, private key headers, GCP service account JSON
+          - HIGH: GitHub/GitLab PATs, Slack tokens, database URLs with passwords
+          - MEDIUM: test keys, generic password/api_key assignments
+          - LOW: placeholder values, internal hostnames
+
+          Rules:
+          - Never output the actual secret — show masked preview only (sk_live_****...****)
+          - Scan .env files in the diff too
+          - For CRITICAL findings, add a blocking merge warning
+
+          If nothing found: post "DevGuard Security: no credentials detected in this MR."
+        user: |
+          Merge request context: {{goal}}
+        placeholder: history
+      params:
+        timeout: 120
+
+  routers:
+    - from: "prevention_agent"
+      to: "end"
+    - from: "security_agent"
+      to: "end"
+
+  flow:
+    entry_point: "prevention_agent"
+    parallel:
+      - "prevention_agent"
+      - "security_agent"

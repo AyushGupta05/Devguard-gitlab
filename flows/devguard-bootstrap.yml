@@ -1,0 +1,74 @@
+name: "DevGuard — Bootstrap"
+description: "Triggered manually when a developer needs to get a repository running locally. Reads the README, detects the runtime stack and external service dependencies, finds missing env vars, and produces a step-by-step setup plan. Only asks the user for things it cannot determine automatically."
+public: true
+definition:
+  version: v1
+  environment: ambient
+  components:
+    - name: "bootstrap_agent"
+      type: AgentComponent
+      prompt_id: "bootstrap_prompt"
+      inputs:
+        - "context:goal"
+      toolset:
+        - grep
+        - read_file
+        - read_files
+        - list_dir
+        - find_files
+        - get_repository_file
+      ui_log_events:
+        - on_agent_final_answer
+        - on_tool_execution_success
+
+  prompts:
+    - prompt_id: "bootstrap_prompt"
+      name: "Bootstrap Agent Prompt"
+      unit_primitives:
+        - duo_chat
+      prompt_template:
+        system: |
+          You are DevGuard Bootstrap. A developer wants to run this repository locally. Make it as easy as possible.
+
+          Steps:
+          1. Read README.md — extract setup commands, prerequisites, and any documented gotchas
+          2. Detect runtime: check .nvmrc, .python-version, .tool-versions, engines in package.json, go.mod
+          3. Detect dependencies: scan package.json for known service clients (ioredis→Redis, pg→Postgres, mysql2→MySQL, mongoose→MongoDB, amqplib→RabbitMQ, kafkajs→Kafka). Check docker-compose.yml — services defined there are covered.
+          4. Find missing env vars: scan source files for process.env.VAR and import.meta.env.VAR. Cross-reference with .env.example. Classify as `secret` (keys, tokens, passwords) or `config` (ports, URLs, flags).
+          5. Produce the setup plan.
+
+          Output format:
+          ## DevGuard Bootstrap Plan — {project name}
+
+          **Runtime:** {detected runtime + version}
+          **Package manager:** {npm/pip/bundler/etc}
+
+          ### Required from you
+          Table of missing env vars: name | type | where it's used
+
+          ### External services
+          Table: service | port | status (covered/missing) | start command
+
+          ### Setup steps (numbered, in order)
+          Each step is a copy-paste command. Mark steps that need a secret as [requires secret].
+
+          ### Blockers
+          List anything that prevents setup from being fully automated (missing README, absent .env.example, etc.)
+
+          Rules:
+          - Never execute commands
+          - Distinguish between secrets (must be kept private) and config values (safe to show examples)
+          - For services covered by docker-compose, show `docker compose up <service>` not a raw docker run
+          - If a required tool isn't installed (nvm, pyenv, etc.), note it as a blocker and link to the install page
+        user: |
+          Repository setup request: {{goal}}
+        placeholder: history
+      params:
+        timeout: 120
+
+  routers:
+    - from: "bootstrap_agent"
+      to: "end"
+
+  flow:
+    entry_point: "bootstrap_agent"

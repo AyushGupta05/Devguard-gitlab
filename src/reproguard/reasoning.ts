@@ -44,6 +44,19 @@ export function buildRiskReport(options: BuildRiskReportOptions): RiskReport {
         confidence: 0.92
       });
       counter += 1;
+      continue;
+    }
+
+    // TIMEZONE_ASSUMPTION, DOCKER_IMAGE_DRIFT, SECURITY_LEAK — pass through directly.
+    // These scanners already filter to relevant changed files or CI config, so no additional
+    // relevance check is needed.
+    if (
+      signal.type === "TIMEZONE_ASSUMPTION" ||
+      signal.type === "DOCKER_IMAGE_DRIFT" ||
+      signal.type === "SECURITY_LEAK"
+    ) {
+      risks.push({ riskId: `R${counter}`, ...signal });
+      counter += 1;
     }
   }
 

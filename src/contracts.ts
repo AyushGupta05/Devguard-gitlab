@@ -8,6 +8,7 @@ export const riskTypes = [
   "LOCAL_RUN_CONFIGURATION",
   "TIMEZONE_ASSUMPTION",
   "DOCKER_IMAGE_DRIFT",
+  "SECURITY_LEAK",
   "UNKNOWN"
 ] as const;
 
