@@ -221,4 +221,76 @@ describe("run() with local repository", () => {
       rmSync(rootDir, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it("report includes codebase context with project name and framework", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "devguard-ctx-"));
+    try {
+      writeFileSync(join(rootDir, "package.json"), JSON.stringify({
+        name: "my-express-api",
+        description: "A REST API built with Express",
+        private: true,
+        scripts: { test: "node -e \"process.exit(0)\"" },
+        dependencies: { express: "^4.18.0" }
+      }, null, 2));
+      writeFileSync(join(rootDir, "package-lock.json"), JSON.stringify({
+        name: "my-express-api", lockfileVersion: 3, packages: {}
+      }, null, 2));
+
+      const report = await run({ repoUrl: rootDir, runVerify: false });
+
+      expect(report.context.projectName).toBe("my-express-api");
+      expect(report.context.description).toBe("A REST API built with Express");
+      expect(report.context.framework).toBe("Express");
+      expect(report.context.stack).toBe("node");
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("report includes readiness score with breakdown", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "devguard-score-"));
+    try {
+      writeFileSync(join(rootDir, "package.json"), JSON.stringify({
+        name: "score-test", private: true, scripts: { test: "node -e \"process.exit(0)\"" }
+      }, null, 2));
+      writeFileSync(join(rootDir, "package-lock.json"), JSON.stringify({
+        name: "score-test", lockfileVersion: 3, packages: {}
+      }, null, 2));
+      writeFileSync(join(rootDir, ".env.example"), "PORT=3000\n");
+
+      const report = await run({ repoUrl: rootDir, runVerify: false });
+
+      expect(report.readiness.score).toBeGreaterThan(0);
+      expect(report.readiness.score).toBeLessThanOrEqual(100);
+      expect(report.readiness.total).toBeGreaterThan(0);
+      expect(report.readiness.breakdown.length).toBe(report.readiness.total);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("formatRunReport includes readiness bar and project section", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "devguard-bar-"));
+    try {
+      writeFileSync(join(rootDir, "package.json"), JSON.stringify({
+        name: "bar-test",
+        description: "Test project",
+        private: true,
+        scripts: { test: "node -e \"process.exit(0)\"" }
+      }, null, 2));
+      writeFileSync(join(rootDir, "package-lock.json"), JSON.stringify({
+        name: "bar-test", lockfileVersion: 3, packages: {}
+      }, null, 2));
+
+      const report = await run({ repoUrl: rootDir, runVerify: false });
+      const formatted = formatRunReport(report);
+
+      expect(formatted).toContain("### Project");
+      expect(formatted).toContain("### Readiness");
+      expect(formatted).toContain("%");
+      expect(formatted).toContain("bar-test");
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

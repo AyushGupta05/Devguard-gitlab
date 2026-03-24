@@ -23,7 +23,7 @@ export type ServiceRequirement = {
 };
 
 // Package names → service type mapping
-const PACKAGE_SERVICE_MAP: Record<string, { type: string; port: number }> = {
+const PACKAGE_SERVICE_MAP: Record<string, { type: string; port: number | null }> = {
   redis: { type: "redis", port: 6379 },
   ioredis: { type: "redis", port: 6379 },
   "@upstash/redis": { type: "redis", port: 6379 },

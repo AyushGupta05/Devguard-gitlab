@@ -140,6 +140,8 @@ export async function run(options: RunOptions): Promise<RunReport> {
     steps.push(cloneStep);
 
     if (cloneStep.status === "failed") {
+      const failContext: CodebaseContext = { projectName: source.name, description: "Repository could not be cloned", framework: null, entryPoint: null, stack: "unknown" };
+      const failReadiness: ReadinessScore = { score: 0, passed: 0, total: 1, breakdown: [{ label: "Repository accessible", met: false }] };
       return makeReport({
         runId: makeRunId(),
         repoUrl: options.repoUrl,
@@ -148,6 +150,8 @@ export async function run(options: RunOptions): Promise<RunReport> {
         steps,
         requiredFromUser,
         services: [],
+        context: failContext,
+        readiness: failReadiness,
         summary: `Clone failed: ${extractError(cloneStep.stderr)}`
       });
     }
