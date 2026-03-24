@@ -14,12 +14,184 @@
         }
       },
       "latest_sync": {
-        "git_tag": "v5",
-        "catalog_version": "1.3.0",
-        "synced_at": "2026-03-19T00:14:36.063Z",
-        "definition_hash": "44dd3dccaa40062a"
+        "git_tag": "v7",
+        "catalog_version": "1.4.0",
+        "synced_at": "2026-03-24T03:54:28.415Z",
+        "definition_hash": "09345e4d8e1c1a4d"
+      }
+    },
+    "agents/bootstrap-agent.yml": {
+      "catalog_id": "gid://gitlab/Ai::Catalog::Item/1006756",
+      "name": "DevGuard Bootstrap",
+      "created_at": "2026-03-24T03:54:29.141Z",
+      "item_consumers": {
+        "group": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611956"
+        },
+        "project": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611957"
+        }
+      },
+      "latest_sync": {
+        "git_tag": "v7",
+        "catalog_version": "1.0.0",
+        "synced_at": "2026-03-24T03:54:29.141Z",
+        "definition_hash": "6ad89b2e48d2a341"
+      }
+    },
+    "agents/prevention-agent.yml": {
+      "catalog_id": "gid://gitlab/Ai::Catalog::Item/1006757",
+      "name": "DevGuard Prevention",
+      "created_at": "2026-03-24T03:54:29.855Z",
+      "item_consumers": {
+        "group": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611958"
+        },
+        "project": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611959"
+        }
+      },
+      "latest_sync": {
+        "git_tag": "v7",
+        "catalog_version": "1.0.0",
+        "synced_at": "2026-03-24T03:54:29.855Z",
+        "definition_hash": "b17bd8078e6960b5"
+      }
+    },
+    "agents/reactive-agent.yml": {
+      "catalog_id": "gid://gitlab/Ai::Catalog::Item/1006758",
+      "name": "DevGuard Reactive",
+      "created_at": "2026-03-24T03:54:30.719Z",
+      "item_consumers": {
+        "group": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611960"
+        },
+        "project": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611961"
+        }
+      },
+      "latest_sync": {
+        "git_tag": "v7",
+        "catalog_version": "1.0.0",
+        "synced_at": "2026-03-24T03:54:30.719Z",
+        "definition_hash": "1be34b24b0d27a4f"
+      }
+    },
+    "agents/security-agent.yml": {
+      "catalog_id": "gid://gitlab/Ai::Catalog::Item/1006759",
+      "name": "DevGuard Security",
+      "created_at": "2026-03-24T03:54:31.556Z",
+      "item_consumers": {
+        "group": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611962"
+        },
+        "project": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611963"
+        }
+      },
+      "latest_sync": {
+        "git_tag": "v7",
+        "catalog_version": "1.0.0",
+        "synced_at": "2026-03-24T03:54:31.556Z",
+        "definition_hash": "f154dc7541629fa2"
       }
     }
   },
-  "flows": {}
+  "flows": {
+    "flows/devguard-bootstrap.yml": {
+      "catalog_id": "gid://gitlab/Ai::Catalog::Item/1006760",
+      "name": "DevGuard — Bootstrap",
+      "created_at": "2026-03-24T03:54:33.169Z",
+      "item_consumers": {
+        "group": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611964"
+        },
+        "project": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611965"
+        }
+      },
+      "latest_sync": {
+        "git_tag": "v7",
+        "catalog_version": "1.0.0",
+        "synced_at": "2026-03-24T03:54:33.169Z",
+        "definition_hash": "c26b14ea6ce0b33e"
+      }
+    },
+    "flows/devguard-prevention.yml": {
+      "catalog_id": "gid://gitlab/Ai::Catalog::Item/1006761",
+      "name": "DevGuard — Prevention",
+      "created_at": "2026-03-24T03:54:34.446Z",
+      "item_consumers": {
+        "group": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611966"
+        },
+        "project": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611967"
+        }
+      },
+      "latest_sync": {
+        "git_tag": "v7",
+        "catalog_version": "1.0.0",
+        "synced_at": "2026-03-24T03:54:34.446Z",
+        "definition_hash": "09d641baa0fb0bdb"
+      }
+    },
+    "flows/devguard-reactive.yml": {
+      "catalog_id": "gid://gitlab/Ai::Catalog::Item/1006762",
+      "name": "DevGuard — Reactive",
+      "created_at": "2026-03-24T03:54:35.889Z",
+      "item_consumers": {
+        "group": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611968"
+        },
+        "project": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611969"
+        }
+      },
+      "latest_sync": {
+        "git_tag": "v7",
+        "catalog_version": "1.0.0",
+        "synced_at": "2026-03-24T03:54:35.889Z",
+        "definition_hash": "c65dc3179e0bcb5d"
+      }
+    },
+    "flows/devguard-security.yml": {
+      "catalog_id": "gid://gitlab/Ai::Catalog::Item/1006763",
+      "name": "DevGuard — Security",
+      "created_at": "2026-03-24T03:54:37.272Z",
+      "item_consumers": {
+        "group": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611970"
+        },
+        "project": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611971"
+        }
+      },
+      "latest_sync": {
+        "git_tag": "v7",
+        "catalog_version": "1.0.0",
+        "synced_at": "2026-03-24T03:54:37.272Z",
+        "definition_hash": "ce3fdf69dcc2391f"
+      }
+    },
+    "flows/devguard.yml": {
+      "catalog_id": "gid://gitlab/Ai::Catalog::Item/1006764",
+      "name": "DevGuard",
+      "created_at": "2026-03-24T03:54:38.507Z",
+      "item_consumers": {
+        "group": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611972"
+        },
+        "project": {
+          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5611973"
+        }
+      },
+      "latest_sync": {
+        "git_tag": "v7",
+        "catalog_version": "1.0.0",
+        "synced_at": "2026-03-24T03:54:38.507Z",
+        "definition_hash": "5963aff63328b1ef"
+      }
+    }
+  }
 }
