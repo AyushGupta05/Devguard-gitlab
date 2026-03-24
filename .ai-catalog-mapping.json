@@ -3,7 +3,7 @@
   "agents": {
     "agents/agent.yml": {
       "catalog_id": "gid://gitlab/Ai::Catalog::Item/1005223",
-      "name": "ReproGuard",
+      "name": "DevGuard",
       "created_at": "2026-03-17T19:31:58.604Z",
       "item_consumers": {
         "group": {
@@ -21,44 +21,5 @@
       }
     }
   },
-  "flows": {
-    "flows/itworkshere-reactive.yml": {
-      "catalog_id": "gid://gitlab/Ai::Catalog::Item/1005354",
-      "name": "ItWorksHere Reactive",
-      "created_at": "2026-03-18T13:34:14.511Z",
-      "item_consumers": {
-        "group": {
-          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5498583"
-        },
-        "project": {
-          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5498584"
-        }
-      },
-      "latest_sync": {
-        "git_tag": "v4",
-        "catalog_version": "1.1.0",
-        "synced_at": "2026-03-18T23:54:25.994Z",
-        "definition_hash": "a72df941f1fdc669"
-      }
-    },
-    "flows/reproguard-prevention.yml": {
-      "catalog_id": "gid://gitlab/Ai::Catalog::Item/1005355",
-      "name": "ReproGuard Prevention",
-      "created_at": "2026-03-18T13:34:15.967Z",
-      "item_consumers": {
-        "group": {
-          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5498588"
-        },
-        "project": {
-          "id": "gid://gitlab/Ai::Catalog::ItemConsumer/5498589"
-        }
-      },
-      "latest_sync": {
-        "git_tag": "v4",
-        "catalog_version": "1.1.0",
-        "synced_at": "2026-03-18T23:54:26.749Z",
-        "definition_hash": "3840e67134d89311"
-      }
-    }
-  }
+  "flows": {}
 }
