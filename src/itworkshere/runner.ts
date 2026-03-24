@@ -42,6 +42,30 @@ export type RequiredInput = {
   source: string;
 };
 
+export type CodebaseContext = {
+  /** Project name from package.json / pyproject.toml */
+  projectName: string;
+  /** One-line description from package.json/pyproject.toml, or inferred */
+  description: string;
+  /** Primary framework detected (express, nextjs, fastapi, django, etc.) */
+  framework: string | null;
+  /** Main entry point file, if detectable */
+  entryPoint: string | null;
+  /** Detected language / runtime */
+  stack: string;
+};
+
+export type ReadinessScore = {
+  /** 0–100 */
+  score: number;
+  /** How many checks passed */
+  passed: number;
+  /** Total checks run */
+  total: number;
+  /** Short labels for what passed/failed */
+  breakdown: Array<{ label: string; met: boolean }>;
+};
+
 export type RunReport = {
   runId: string;
   repoUrl: string;
@@ -51,6 +75,10 @@ export type RunReport = {
   /** Things DevGuard could not provide automatically — must come from the user */
   requiredFromUser: RequiredInput[];
   services: ServiceRequirement[];
+  /** What the project is and what it uses */
+  context: CodebaseContext;
+  /** How complete the environment is (0–100) */
+  readiness: ReadinessScore;
   /** Plain-English summary */
   summary: string;
 };
@@ -75,7 +103,9 @@ const SAFE_COMMAND_PATTERNS = [
   /^pip3\s+install\b/,
   /^poetry\s+install\b/,
   /^cp\s+\.env\.example\s+\.env\b/,
-  /^cp\s+\.env\.sample\s+\.env\b/
+  /^cp\s+\.env\.sample\s+\.env\b/,
+  /^nvm\s+use\b/,
+  /^pyenv\s+local\b/
 ];
 
 function isSafeCommand(command: string): boolean {
@@ -124,7 +154,7 @@ export async function run(options: RunOptions): Promise<RunReport> {
   }
 
   // -------------------------------------------------------------------------
-  // 2. Read the repository — build setup plan + detect services
+  // 2. Read the repository — build setup plan + detect services + codebase context
   // -------------------------------------------------------------------------
   const plan = buildLocalSetupPlan({
     rootDir: effectiveRoot,
@@ -132,6 +162,7 @@ export async function run(options: RunOptions): Promise<RunReport> {
   });
 
   const services = detectServiceDependencies(effectiveRoot);
+  const context = readCodebaseContext(effectiveRoot, plan.detectedStack);
 
   // -------------------------------------------------------------------------
   // 3. Environment setup — copy .env.example if no .env exists
@@ -226,7 +257,29 @@ export async function run(options: RunOptions): Promise<RunReport> {
   }
 
   // -------------------------------------------------------------------------
-  // 6. Install dependencies
+  // 6. Proactive runtime version switching (before install)
+  // -------------------------------------------------------------------------
+  for (const hint of plan.runtimeHints) {
+    let runtimeCmd: string | null = null;
+    if (hint.tool === "node") {
+      runtimeCmd = `nvm use ${hint.value} 2>/dev/null || nvm use --lts 2>/dev/null || true`;
+    } else if (hint.tool === "python") {
+      runtimeCmd = `pyenv local ${hint.value} 2>/dev/null || true`;
+    }
+    if (runtimeCmd) {
+      const runtimeStep = await execStep({
+        id: `runtime-${hint.tool}`,
+        label: `Switch ${hint.tool} to ${hint.value} (from ${hint.source})`,
+        command: runtimeCmd,
+        workdir: effectiveRoot
+      });
+      // Runtime switch failures are non-fatal — we note them and continue
+      steps.push({ ...runtimeStep, status: runtimeStep.exitCode === 0 ? "success" : "skipped" });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 7. Install dependencies
   // -------------------------------------------------------------------------
   for (const cmd of plan.installCommands) {
     if (!isSafeCommand(cmd.command)) {
@@ -280,7 +333,7 @@ export async function run(options: RunOptions): Promise<RunReport> {
   }
 
   // -------------------------------------------------------------------------
-  // 7. Verify (run tests) — only if no unresolved blockers for env vars
+  // 8. Verify (run tests) — only if no unresolved blockers for env vars
   // -------------------------------------------------------------------------
   if (runVerify && missingVars.length === 0) {
     for (const cmd of plan.verificationCommands) {
@@ -329,7 +382,7 @@ export async function run(options: RunOptions): Promise<RunReport> {
   }
 
   // -------------------------------------------------------------------------
-  // 8. Determine overall status and build report
+  // 9. Determine overall status, readiness score, and build report
   // -------------------------------------------------------------------------
   const failedSteps = steps.filter((s) => s.status === "failed");
   const needsInput = requiredFromUser.length > 0;
@@ -339,6 +392,7 @@ export async function run(options: RunOptions): Promise<RunReport> {
     : needsInput ? "partial"
     : "ready";
 
+  const readiness = buildReadinessScore(steps, requiredFromUser, services, plan);
   const summary = buildSummary(overallStatus, steps, requiredFromUser, services, plan);
 
   return makeReport({
@@ -349,6 +403,8 @@ export async function run(options: RunOptions): Promise<RunReport> {
     steps,
     requiredFromUser,
     services,
+    context,
+    readiness,
     summary
   });
 }
@@ -368,6 +424,21 @@ export function formatRunReport(report: RunReport): string {
   lines.push(`**Local path:** ${report.repositoryRoot}`);
   lines.push("");
   lines.push(report.summary);
+
+  // Codebase context
+  lines.push("");
+  lines.push("### Project");
+  lines.push(`**${report.context.projectName}** — ${report.context.description}`);
+  lines.push(`Stack: ${report.context.stack}${report.context.framework ? ` · ${report.context.framework}` : ""}${report.context.entryPoint ? ` · entry: ${report.context.entryPoint}` : ""}`);
+
+  // Readiness score
+  lines.push("");
+  lines.push("### Readiness");
+  const bar = buildProgressBar(report.readiness.score);
+  lines.push(`${bar} **${report.readiness.score}%** (${report.readiness.passed}/${report.readiness.total} checks passed)`);
+  for (const check of report.readiness.breakdown) {
+    lines.push(`  ${check.met ? "✅" : "❌"} ${check.label}`);
+  }
 
   if (report.requiredFromUser.length > 0) {
     lines.push("");
@@ -548,4 +619,126 @@ function makeRunId() {
 
 function slugify(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+}
+
+// ---------------------------------------------------------------------------
+// Codebase context
+// ---------------------------------------------------------------------------
+
+function readCodebaseContext(rootDir: string, stack: string): CodebaseContext {
+  let projectName = "unknown";
+  let description = "No description found";
+  let framework: string | null = null;
+  let entryPoint: string | null = null;
+
+  const pkgPath = join(rootDir, "package.json");
+  if (existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as Record<string, unknown>;
+      if (typeof pkg.name === "string") projectName = pkg.name;
+      if (typeof pkg.description === "string" && pkg.description) description = pkg.description;
+
+      const deps: Record<string, string> = {
+        ...(typeof pkg.dependencies === "object" && pkg.dependencies !== null ? pkg.dependencies as Record<string, string> : {}),
+        ...(typeof pkg.devDependencies === "object" && pkg.devDependencies !== null ? pkg.devDependencies as Record<string, string> : {})
+      };
+
+      framework = detectFramework(deps);
+
+      const scripts = typeof pkg.scripts === "object" && pkg.scripts !== null ? pkg.scripts as Record<string, string> : {};
+      if (scripts.start) entryPoint = resolveEntryPoint(rootDir, scripts.start);
+      else if (scripts.dev) entryPoint = resolveEntryPoint(rootDir, scripts.dev);
+    } catch { /* ignore parse errors */ }
+  }
+
+  const pyprojectPath = join(rootDir, "pyproject.toml");
+  if (stack === "python" && existsSync(pyprojectPath)) {
+    const content = readFileSync(pyprojectPath, "utf8");
+    const nameMatch = content.match(/^name\s*=\s*"([^"]+)"/m);
+    const descMatch = content.match(/^description\s*=\s*"([^"]+)"/m);
+    if (nameMatch) projectName = nameMatch[1];
+    if (descMatch) description = descMatch[1];
+    if (/fastapi/i.test(content)) framework = "fastapi";
+    else if (/django/i.test(content)) framework = "django";
+    else if (/flask/i.test(content)) framework = "flask";
+  }
+
+  return { projectName, description, framework, entryPoint, stack };
+}
+
+function detectFramework(deps: Record<string, string>): string | null {
+  if (deps["next"]) return "Next.js";
+  if (deps["nuxt"] || deps["nuxt3"]) return "Nuxt";
+  if (deps["@remix-run/node"] || deps["@remix-run/react"]) return "Remix";
+  if (deps["gatsby"]) return "Gatsby";
+  if (deps["express"]) return "Express";
+  if (deps["fastify"]) return "Fastify";
+  if (deps["koa"]) return "Koa";
+  if (deps["hono"]) return "Hono";
+  if (deps["nestjs"] || deps["@nestjs/core"]) return "NestJS";
+  if (deps["react"] && !deps["next"]) return "React";
+  if (deps["vue"] && !deps["nuxt"]) return "Vue";
+  if (deps["svelte"]) return "Svelte";
+  if (deps["@angular/core"]) return "Angular";
+  return null;
+}
+
+function resolveEntryPoint(rootDir: string, startScript: string): string | null {
+  const match = startScript.match(/node\s+([^\s]+)/);
+  if (match && existsSync(join(rootDir, match[1]))) return match[1];
+  for (const candidate of ["src/index.ts", "src/index.js", "index.ts", "index.js", "app.ts", "app.js", "server.ts", "server.js"]) {
+    if (existsSync(join(rootDir, candidate))) return candidate;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Readiness score
+// ---------------------------------------------------------------------------
+
+function buildReadinessScore(
+  steps: RunStep[],
+  required: RequiredInput[],
+  services: ServiceRequirement[],
+  plan: { runtimeHints: Array<{ tool: string; value: string; source: string }>; installCommands: Array<unknown>; verificationCommands: Array<unknown> }
+): ReadinessScore {
+  const breakdown: Array<{ label: string; met: boolean }> = [];
+
+  // Runtime version pinned
+  const runtimePinned = plan.runtimeHints.length > 0;
+  breakdown.push({ label: "Runtime version pinned (.nvmrc / .python-version / engines)", met: runtimePinned });
+
+  // Dependencies installed
+  const installSucceeded = steps.some((s) => s.id.startsWith("install") && (s.status === "success" || s.status === "recovered"));
+  const installAttempted = steps.some((s) => s.id.startsWith("install"));
+  breakdown.push({ label: "Dependencies installed", met: installAttempted ? installSucceeded : plan.installCommands.length === 0 });
+
+  // All required env vars satisfied
+  const secretsOk = required.filter((r) => r.type === "secret" || r.type === "env_var").length === 0;
+  breakdown.push({ label: "All required env vars / secrets provided", met: secretsOk });
+
+  // External services covered
+  const servicesOk = services.every((s) => s.coveredByDockerCompose);
+  breakdown.push({ label: "External services covered (docker-compose or provided)", met: servicesOk || services.length === 0 });
+
+  // .env file exists
+  const envInjected = steps.some((s) => (s.id === "env-copy" || s.id === "env-inject") && s.status === "success");
+  const noEnvNeeded = required.filter((r) => r.type === "env_var" || r.type === "secret").length === 0;
+  breakdown.push({ label: ".env file ready", met: envInjected || noEnvNeeded });
+
+  // Verification passed
+  const verifyPassed = steps.some((s) => s.id.startsWith("verify") && (s.status === "success" || s.status === "recovered"));
+  const verifySkipped = steps.some((s) => s.id.startsWith("skip") && s.label.includes("test"));
+  breakdown.push({ label: "Tests / verify passed", met: verifyPassed && !verifySkipped });
+
+  const passed = breakdown.filter((c) => c.met).length;
+  const total = breakdown.length;
+  const score = Math.round((passed / total) * 100);
+
+  return { score, passed, total, breakdown };
+}
+
+function buildProgressBar(score: number): string {
+  const filled = Math.round(score / 10);
+  return `[${"█".repeat(filled)}${"░".repeat(10 - filled)}]`;
 }
