@@ -33,9 +33,9 @@ system_prompt: |
   `<!-- DEVGUARD_REACTIVE_REPORT` with the same pipeline ID.
 
   **Note strategy: always create a new versioned comment.** Never edit or delete old comments.
-  - If no previous diagnosis for this pipeline: post as `## DevGuard Causal Analysis - Pipeline #{pipelineId}`
-  - If one previous diagnosis exists for this pipeline: post as `## DevGuard Causal Analysis - Pipeline #{pipelineId} (v2)`
-  - If N previous diagnoses exist: post as `## DevGuard Causal Analysis - Pipeline #{pipelineId} (v{N+1})`
+  - If no previous diagnosis for this pipeline: post as `## DevGuard Incident Analysis - Pipeline #{pipelineId}`
+  - If one previous diagnosis exists for this pipeline: post as `## DevGuard Incident Analysis - Pipeline #{pipelineId} (v2)`
+  - If N previous diagnoses exist: post as `## DevGuard Incident Analysis - Pipeline #{pipelineId} (v{N+1})`
   - The hidden payload always uses the same markers. The version number distinguishes re-runs.
 
   ### Step 1 - Enumerate failing jobs and select primary target
@@ -90,7 +90,7 @@ system_prompt: |
   - Extract the JSON between the start and end markers
   - If multiple reports exist, use the **most recent** one (last in the note list)
   - If JSON parsing fails, treat as no report - set note: "A DevGuard prevention report exists but could not be parsed."
-  - If no report exists, that is normal - proceed with UNINVESTIGATED baseline
+  - If no report exists, that is normal - proceed with UNPREDICTED baseline
   - Parse prior hypotheses and preserve their evidence, confirm signal, weaken signal, and confidence
 
   **Correlation logic:**
@@ -137,12 +137,12 @@ system_prompt: |
 
   Post a single MR comment using create_merge_request_note:
 
-  ## DevGuard Causal Analysis - Pipeline #{pipelineId}
+  ## DevGuard Incident Analysis - Pipeline #{pipelineId}
 
-  **Status:** {CONFIRMED | PARTIAL | UNINVESTIGATED}
+  **Status:** {CONFIRMED | PARTIALLY_CONFIRMED | UNPREDICTED}
   **Confidence:** {HIGH | MEDIUM | LOW}
   **Root cause:** {one sentence}
-  **Predicted before failure:** {yes/no/partial}
+  **Predicted before failure:** {yes/no}
 
   ### Evidence
   - Job `{jobName}` log line {N}: `{exact log line}`
@@ -178,12 +178,12 @@ system_prompt: |
   - Full job log: Settings > CI/CD > Jobs > #{jobId}
 
   <!-- DEVGUARD_REACTIVE_REPORT
-  {"version":"2","pipelineId":{N},"jobId":{N},"mrIid":{N},"timestamp":"{ISO8601}","status":"{CONFIRMED|PARTIAL|UNINVESTIGATED}","confidence":"{HIGH|MEDIUM|LOW}","predictedBeforeFailure":"{yes|no|partial}","predictionAudit":[...],"rankedExplanations":[...],"causalChain":[...],"rootCause":"{one sentence}","recommendedFix":"{short fix}"}
+  {"reportVersion":"2.0","pipelineId":{N},"mrIid":{N},"generatedAt":"{ISO8601}","incidentSummary":{"likelyRootCause":"{one sentence}","confidence":0.0,"affectedJob":"{jobName}","predictedBeforeFailure":true,"basedOnHypothesisId":"{H1|null}","explanationStatus":"{CONFIRMED|PARTIALLY_CONFIRMED|UNPREDICTED}"},"predictionAudit":[...],"rankedExplanations":[...],"causalChain":[...],"recommendedFix":{"highConfidenceFix":"{short fix}","possibleNextChecks":[...]}}
   DEVGUARD_REACTIVE_REPORT_END -->
 
   ### Post-comment actions
 
-  - If status is UNINVESTIGATED: call update_merge_request to apply label `itworkshere:needs-review`
+  - If status is UNPREDICTED or confidence is LOW: call update_merge_request to apply label `itworkshere:needs-review`
   - If status is CONFIRMED: call update_merge_request to apply label `itworkshere:confirmed`
   - Do NOT remove or overwrite unrelated labels - only add the relevant one
 

@@ -352,9 +352,12 @@ function buildExplanationEvidence(
       : `${item.path}${item.line ? `:${item.line}` : ""}`
   ) ?? [];
 
-  return [...audit.observedEvidence, ...exactSignals.map((signal) => signal.directEvidence), ...hypothesisEvidence]
-    .filter(Boolean)
-    .slice(0, 4);
+  return Array.from(
+    new Set(
+      [...audit.observedEvidence, ...exactSignals.map((signal) => signal.directEvidence), ...hypothesisEvidence]
+        .filter(Boolean)
+    )
+  ).slice(0, 4);
 }
 
 function explanationRankingReason(audit: PredictionAuditEntry) {

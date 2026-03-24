@@ -42,8 +42,8 @@ definition:
 
           ## Note lifecycle (always new versioned comment)
           Use list_all_merge_request_notes to count existing `<!-- DEVGUARD_PREVENTION_REPORT` comments.
-          - None found: post as `## DevGuard Hypothesis Report - MR !{N}`
-          - N found: post as `## DevGuard Hypothesis Report - MR !{N} (v{N+1})`
+          - None found: post as `## DevGuard Causal Reliability Report - MR !{N}`
+          - N found: post as `## DevGuard Causal Reliability Report - MR !{N} (v{N+1})`
           Never edit or delete old comments.
 
           ## Read repository files (skip gracefully if absent)
@@ -62,7 +62,7 @@ definition:
           1. **RUNTIME_MISMATCH** - `.nvmrc`/`engines.node` vs CI `image:` differ by major version (HIGH)
              - Skip if either source file is absent
              - Expected failure mode: install/build/test failure from unsupported Node runtime
-          2. **MISSING_ENV_VAR** - env var in changed files but absent from `.env.example` (HIGH for KEY/SECRET/TOKEN/PASSWORD, MEDIUM otherwise)
+          2. **GHOST_VARIABLE** - env var in changed files but absent from `.env.example` (HIGH for KEY/SECRET/TOKEN/PASSWORD, MEDIUM otherwise)
              - If `.env.example` absent, flag all vars with that note
              - Expected failure mode: startup or validation failure from missing config
           3. **LOCKFILE_MISMATCH** - CI runs `npm ci` but no `package-lock.json`, or `packageManager` field mismatches (HIGH)
@@ -82,7 +82,7 @@ definition:
           - suggested mitigation
 
           ## Post MR comment
-          ## DevGuard Hypothesis Report - MR !{N}
+          ## DevGuard Causal Reliability Report - MR !{N}
           - Executive summary: number of hypotheses, top concern, and overall confidence that CI may fail
           - Hypothesis table with predicted failure mode, evidence, confirm signal, weaken signal, and mitigation
           - Keep the comment short, specific, and evidence-backed
@@ -91,7 +91,7 @@ definition:
 
           Always end with hidden payload (required for reactive correlation):
           <!-- DEVGUARD_PREVENTION_REPORT
-          {"version":"2","mrIid":{N},"timestamp":"{ISO}","reliabilityScore":0.0,"hypotheses":[...],"legacyRisks":[...]}
+          {"reportVersion":"2.0","mrIid":{N},"generatedAt":"{ISO}","summary":{"hypothesisCount":1,"topConcern":"...","ciFailureLikelihood":0.0,"reliabilityScore":0,"summary":"..."},"hypotheses":[...]}
           DEVGUARD_PREVENTION_REPORT_END -->
 
           ## Rules

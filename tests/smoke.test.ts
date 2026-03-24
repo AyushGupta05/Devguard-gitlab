@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { buildGoldenPathDemo, formatGoldenPathDemo } from "../src/demo/golden-path.js";
 import { projectName } from "../src/index.js";
 
 describe("project baseline", () => {
@@ -17,5 +18,20 @@ describe("project baseline", () => {
     expect(ci).toContain("node:18-alpine");
     expect(cache).toContain("REDIS_URL");
     expect(envExample).not.toContain("REDIS_URL");
+  });
+
+  it("renders the golden-path demo with prevention and reactive reasoning output", () => {
+    const demo = buildGoldenPathDemo();
+    const output = formatGoldenPathDemo(demo);
+
+    expect(demo.predictionStatus).toBe("CONFIRMED");
+    expect(demo.rootCause).toContain("CI is running Node");
+    expect(output).toContain("## Prevention output");
+    expect(output).toContain("Hypothesis table");
+    expect(output).toContain("## Reactive output");
+    expect(output).toContain("Prediction audit");
+    expect(output).toContain("Ranked explanations");
+    expect(output).toContain("What changed in my belief");
+    expect(output).not.toContain("hypothesises");
   });
 });

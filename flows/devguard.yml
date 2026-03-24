@@ -69,8 +69,8 @@ definition:
 
           ### Step 0 - Note lifecycle (always new versioned comment)
           Use list_all_merge_request_notes to count existing `<!-- DEVGUARD_PREVENTION_REPORT` comments.
-          - None found: post as `## DevGuard Hypothesis Report - MR !{N}`
-          - N found: post as `## DevGuard Hypothesis Report - MR !{N} (v{N+1})`
+          - None found: post as `## DevGuard Causal Reliability Report - MR !{N}`
+          - N found: post as `## DevGuard Causal Reliability Report - MR !{N} (v{N+1})`
           Never edit or delete old comments.
 
           ### Step 1 - Read repository context
@@ -92,7 +92,7 @@ definition:
           1. **RUNTIME_MISMATCH** - `.nvmrc`/`engines.node` vs CI `image:` differ by major version
              - Skip if either file is absent. Severity: HIGH
              - Expected failure mode: install/build/test failure from unsupported Node runtime
-          2. **MISSING_ENV_VAR** - env var in changed files but absent from `.env.example`
+          2. **GHOST_VARIABLE** - env var in changed files but absent from `.env.example`
              - Severity: HIGH for names containing KEY/SECRET/TOKEN/PASSWORD, MEDIUM otherwise
              - If `.env.example` is absent, flag all referenced vars with that note
              - Expected failure mode: startup or validation failure from missing config
@@ -115,7 +115,7 @@ definition:
           ### Step 4 - Post MR comment
           Format:
 
-          ## DevGuard Hypothesis Report - MR !{N}
+          ## DevGuard Causal Reliability Report - MR !{N}
 
           - Executive summary: number of hypotheses, top concern, and overall confidence that CI may fail
           - Hypothesis table with predicted failure mode, evidence, confirm signal, weaken signal, and mitigation
@@ -125,7 +125,7 @@ definition:
 
           Always end with hidden payload (required for reactive correlation):
           <!-- DEVGUARD_PREVENTION_REPORT
-          {"version":"2","mrIid":{N},"timestamp":"{ISO}","reliabilityScore":0.0,"hypotheses":[...],"legacyRisks":[...]}
+          {"reportVersion":"2.0","mrIid":{N},"generatedAt":"{ISO}","summary":{"hypothesisCount":1,"topConcern":"...","ciFailureLikelihood":0.0,"reliabilityScore":0,"summary":"..."},"hypotheses":[...]}
           DEVGUARD_PREVENTION_REPORT_END -->
 
           ## MODE B - Reactive
@@ -134,8 +134,8 @@ definition:
 
           ### Step 0 - Note lifecycle (always new versioned comment)
           Use list_all_merge_request_notes to count existing `<!-- DEVGUARD_REACTIVE_REPORT` comments for this pipeline ID.
-          - None found: post as `## DevGuard Causal Analysis - Pipeline #{N}`
-          - N found: post as `## DevGuard Causal Analysis - Pipeline #{N} (v{N+1})`
+          - None found: post as `## DevGuard Incident Analysis - Pipeline #{N}`
+          - N found: post as `## DevGuard Incident Analysis - Pipeline #{N} (v{N+1})`
           Never edit or delete old comments.
 
           ### Step 1 - Enumerate failing jobs and read logs
@@ -164,8 +164,8 @@ definition:
 
           Classify:
           - **CONFIRMED** - error matches predicted failure mode or confirmatory signal
-          - **PARTIAL** - hypothesis was directionally right but not exact
-          - **UNINVESTIGATED** - no report, empty report, or no match
+          - **PARTIALLY_CONFIRMED** - hypothesis was directionally right but not exact
+          - **UNPREDICTED** - no report, empty report, or no match
 
           ### Step 4 - Determine confidence
           | Signal quality | Prevention match | Result |
@@ -179,21 +179,21 @@ definition:
           ### Step 5 - Post diagnosis comment
           Format:
 
-          ## DevGuard Causal Analysis - Pipeline #{N}
-          **Status:** CONFIRMED | PARTIAL | UNINVESTIGATED
+          ## DevGuard Incident Analysis - Pipeline #{N}
+          **Status:** CONFIRMED | PARTIALLY_CONFIRMED | UNPREDICTED
           **Confidence:** HIGH | MEDIUM | LOW
           **Root cause:** {one sentence}
-          **Predicted before failure:** yes | no | partial
+          **Predicted before failure:** yes | no
           ### Evidence
           {log line, repo config, prediction audit, ranked explanations, causal chain}
           ### Fix
           {file edits as code blocks, CI settings as navigation paths}
 
           <!-- DEVGUARD_REACTIVE_REPORT
-          {"version":"2","pipelineId":{N},"jobId":{N},"mrIid":{N},"timestamp":"{ISO}","status":"...","confidence":"...","predictedBeforeFailure":"...","predictionAudit":[...],"rankedExplanations":[...],"causalChain":[...],"rootCause":"...","recommendedFix":"..."}
+          {"reportVersion":"2.0","pipelineId":{N},"mrIid":{N},"generatedAt":"{ISO}","incidentSummary":{"likelyRootCause":"...","confidence":0.0,"affectedJob":"...","predictedBeforeFailure":true,"basedOnHypothesisId":"...","explanationStatus":"..."},"predictionAudit":[...],"rankedExplanations":[...],"causalChain":[...],"recommendedFix":{"highConfidenceFix":"...","possibleNextChecks":[...]}}
           DEVGUARD_REACTIVE_REPORT_END -->
 
-          Post-comment: apply label `itworkshere:needs-review` if UNINVESTIGATED, `itworkshere:confirmed` if CONFIRMED.
+          Post-comment: apply label `itworkshere:needs-review` if UNPREDICTED or LOW confidence, `itworkshere:confirmed` if CONFIRMED.
           Do NOT remove unrelated labels.
 
           ---

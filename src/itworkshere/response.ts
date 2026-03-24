@@ -58,7 +58,7 @@ export function formatReactiveComment(
   lines.push("|---|---|---|---|---|");
 
   if (causalAnalysis.predictionAudit.length === 0) {
-    lines.push("| None | UNPREDICTED | - | - | No prior prevention report was available. |");
+    lines.push("| None | UNPREDICTED | - | - | No prior hypotheses were available to audit against the failure. |");
   } else {
     for (const audit of causalAnalysis.predictionAudit) {
       lines.push([

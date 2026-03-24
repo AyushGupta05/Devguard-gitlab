@@ -7,11 +7,9 @@ import {
   preventionReportSchema,
   type EnvironmentMap,
   type Hypothesis,
-  type LocalSetupPlan,
   type PreventionReport,
   workflowLabels
 } from "../contracts.js";
-import { buildLocalRunConfigurationRisk } from "./local-run.js";
 import { type PreventionSignal } from "./scanners.js";
 
 type BuildRiskReportOptions = {
@@ -19,7 +17,6 @@ type BuildRiskReportOptions = {
   mergeRequestDiff: string;
   environmentMap: EnvironmentMap;
   signals: PreventionSignal[];
-  localSetupPlan?: LocalSetupPlan;
 };
 
 export function buildRiskReport(options: BuildRiskReportOptions): PreventionReport {
@@ -52,18 +49,6 @@ export function buildRiskReport(options: BuildRiskReportOptions): PreventionRepo
     if (isDirectlyRelevant(signal, options.environmentMap.changedFiles)) {
       hypotheses.push(createHypothesisFromSignal(signal, `H${counter}`, options.environmentMap.changedFiles));
       counter += 1;
-    }
-  }
-
-  if (options.localSetupPlan) {
-    const localRunHypothesis = buildLocalRunConfigurationRisk(
-      options.localSetupPlan,
-      options.environmentMap,
-      `H${counter}`
-    );
-
-    if (localRunHypothesis) {
-      hypotheses.push(localRunHypothesis);
     }
   }
 
@@ -270,7 +255,9 @@ function buildExecutiveSummary(hypothesisCount: number, topConcern: string | nul
     return `DevGuard did not find evidence-backed CI failure hypotheses in this merge request. Residual failure likelihood is ${formatPercent(likelihood)}.`;
   }
 
-  return `DevGuard formed ${hypothesisCount} evidence-backed hypothesis${hypothesisCount === 1 ? "" : "es"}. Top concern: ${topConcern}. Estimated CI failure likelihood is ${formatPercent(likelihood)}.`;
+  const hypothesisLabel = hypothesisCount === 1 ? "hypothesis" : "hypotheses";
+
+  return `DevGuard formed ${hypothesisCount} evidence-backed ${hypothesisLabel}. Top concern: ${topConcern}. Estimated CI failure likelihood is ${formatPercent(likelihood)}.`;
 }
 
 function summarizeEvidence(hypothesis: Hypothesis) {

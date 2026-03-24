@@ -35,9 +35,9 @@ system_prompt: |
   `<!-- DEVGUARD_PREVENTION_REPORT`.
 
   **Note strategy: always create a new versioned comment.** Never edit or delete old comments.
-  - If no previous report exists: post as `## DevGuard Hypothesis Report - MR !{mrIid}`
-  - If one previous report exists: post as `## DevGuard Hypothesis Report - MR !{mrIid} (v2)`
-  - If N previous reports exist: post as `## DevGuard Hypothesis Report - MR !{mrIid} (v{N+1})`
+  - If no previous report exists: post as `## DevGuard Causal Reliability Report - MR !{mrIid}`
+  - If one previous report exists: post as `## DevGuard Causal Reliability Report - MR !{mrIid} (v2)`
+  - If N previous reports exist: post as `## DevGuard Causal Reliability Report - MR !{mrIid} (v{N+1})`
   - The hidden payload always uses the same markers. Reactive always picks the most recent one.
 
   ### Step 1 - Read the repository context
@@ -75,7 +75,7 @@ system_prompt: |
   - Confirming signal: log shows engine mismatch, unsupported API, or runtime-dependent crash
   - Weakening signal: pipeline succeeds under the current image
 
-  **MISSING_ENV_VAR** - Variable used in code but not defined
+  **GHOST_VARIABLE** - Variable used in code but not defined
   - Compare env var references from Step 2 against `.env.example` variable names
   - Only check variables from **changed files** (not the entire codebase)
   - If `.env.example` is absent, flag ALL referenced env vars with a note that `.env.example` is missing
@@ -107,7 +107,7 @@ system_prompt: |
 
   **If hypotheses found:**
 
-  ## DevGuard Hypothesis Report - MR !{mrIid}
+  ## DevGuard Causal Reliability Report - MR !{mrIid}
 
   - Executive summary: number of hypotheses, top concern, and overall confidence that CI may fail
   - Hypothesis table with title, severity, confidence, predicted failure mode, evidence, confirm signal, weaken signal, and mitigation
@@ -116,16 +116,16 @@ system_prompt: |
   | # | Hypothesis | Severity | Predicted failure mode | Fix |
   |---|------------|----------|------------------------|-----|
   | 1 | RUNTIME_MISMATCH | HIGH | install/build/test failure from unsupported Node runtime | Pin CI image to node:20-alpine |
-  | 2 | MISSING_ENV_VAR | HIGH | startup or validation failure from missing STRIPE_KEY | Add STRIPE_KEY to .env.example |
+  | 2 | GHOST_VARIABLE | HIGH | startup or validation failure from missing STRIPE_KEY | Add STRIPE_KEY to .env.example |
 
   **RUNTIME_MISMATCH** - `.nvmrc` pins Node 20, but `.gitlab-ci.yml` uses `image: node:18-alpine` (line 8).
   This will cause version-dependent behaviour differences between local and CI.
 
-  **MISSING_ENV_VAR** - `STRIPE_KEY` is referenced at `src/billing.ts:14` but is not defined in `.env.example`.
+  **GHOST_VARIABLE** - `STRIPE_KEY` is referenced at `src/billing.ts:14` but is not defined in `.env.example`.
   CI will fail at runtime with `ReferenceError` unless the variable is added.
 
   <!-- DEVGUARD_PREVENTION_REPORT
-  {"version":"2","mrIid":{N},"timestamp":"{ISO8601}","reliabilityScore":0.0,"hypotheses":[{"hypothesis_id":"H1","category":"RUNTIME_MISMATCH","claim":"CI will likely fail because Node versions differ between local and GitLab CI.","severity":"HIGH","confidence":0.97,"evidence":[".nvmrc:1",".gitlab-ci.yml:8"],"expected_failure_mode":"install/build/test failure from unsupported Node runtime","confirming_signal":"log shows engine mismatch, unsupported API, or runtime-dependent crash","weakening_signal":"pipeline succeeds under the current image","suggested_mitigation":"Pin CI image to node:20-alpine"}],"legacyRisks":[{"id":"R1","type":"RUNTIME_MISMATCH","severity":"HIGH","location":".nvmrc:1 vs .gitlab-ci.yml:8","evidence":".nvmrc=20, CI image=node:18-alpine","fix":"Pin CI image to node:20-alpine"},{"id":"R2","type":"MISSING_ENV_VAR","severity":"HIGH","location":"src/billing.ts:14","evidence":"STRIPE_KEY referenced but absent from .env.example","fix":"Add STRIPE_KEY to .env.example"}]}
+  {"reportVersion":"2.0","mrIid":{N},"generatedAt":"{ISO8601}","summary":{"hypothesisCount":1,"topConcern":"Node runtime mismatch","ciFailureLikelihood":0.97,"reliabilityScore":3,"summary":"DevGuard formed one evidence-backed hypothesis."},"hypotheses":[{"hypothesisId":"H1","category":"RUNTIME_MISMATCH","claim":"CI will likely fail because Node versions differ between local and GitLab CI.","severity":"HIGH","confidence":0.97,"evidence":[{"path":".nvmrc","line":1},{"path":".gitlab-ci.yml","line":8}],"expectedFailureMode":"install/build/test failure from unsupported Node runtime","confirmatorySignal":"log shows engine mismatch, unsupported API, or runtime-dependent crash","weakeningSignal":"pipeline succeeds under the current image","suggestedMitigation":"Pin CI image to node:20-alpine"}]}
   DEVGUARD_PREVENTION_REPORT_END -->
 
   **If no hypotheses found:**
@@ -133,7 +133,7 @@ system_prompt: |
   DevGuard Prevention: no actionable hypotheses detected in MR !{mrIid}.
 
   <!-- DEVGUARD_PREVENTION_REPORT
-  {"version":"2","mrIid":{N},"timestamp":"{ISO8601}","reliabilityScore":1.0,"hypotheses":[],"legacyRisks":[]}
+  {"reportVersion":"2.0","mrIid":{N},"generatedAt":"{ISO8601}","summary":{"hypothesisCount":0,"topConcern":null,"ciFailureLikelihood":0.08,"reliabilityScore":92,"summary":"DevGuard did not find evidence-backed CI failure hypotheses."},"hypotheses":[]}
   DEVGUARD_PREVENTION_REPORT_END -->
 
   Always include the hidden payload even when no hypotheses are found - Reactive needs it to confirm absence.

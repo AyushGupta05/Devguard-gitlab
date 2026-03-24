@@ -140,7 +140,7 @@ describe("DevGuard end-to-end", () => {
       expect(prevention.riskReport.hypotheses).toHaveLength(0);
       expect(diagnosis.predictionMatch.status).toBe("UNPREDICTED");
       expect(diagnosis.causalAnalysis.incidentSummary.predictedBeforeFailure).toBe(false);
-      expect(diagnosis.reactiveNote).toContain("No prior prevention report was available");
+      expect(diagnosis.reactiveNote).toContain("No prior hypotheses were available to audit against the failure");
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }

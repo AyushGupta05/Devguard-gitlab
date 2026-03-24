@@ -6,12 +6,6 @@
  *   scan()     → Prevention. Runs at MR creation. Predicts what will break in CI.
  *   diagnose() → Reaction.   Runs after pipeline failure. Confirms the prediction and generates a fix.
  */
-export { run, formatRunReport } from "./itworkshere/runner.js";
-export type { RunOptions, RunReport, RunStep, RunStepStatus, RequiredInput } from "./itworkshere/runner.js";
-export { detectServiceDependencies } from "./itworkshere/services.js";
-export type { ServiceRequirement } from "./itworkshere/services.js";
-
-import { buildLocalSetupPlan } from "./itworkshere/bootstrap.js";
 import { createCausalAnalysis, matchPrediction } from "./itworkshere/analysis.js";
 import { createFailureContext } from "./itworkshere/failure-intake.js";
 import { buildFixBundle, buildReactiveNote } from "./itworkshere/response.js";
@@ -22,7 +16,6 @@ import {
   type EnvironmentMap,
   type FailureContext,
   type FixBundle,
-  type LocalSetupPlan,
   type PredictionMatch,
   type RiskReport
 } from "./contracts.js";
@@ -44,8 +37,6 @@ export type ScanOptions = {
   mergeRequestDiff?: string;
   /** Optional pipeline ID to associate with this scan */
   pipelineId?: number;
-  /** Whether to include a local bootstrap plan in the risk report */
-  includeBootstrapPlan?: boolean;
 };
 
 export type ScanResult = {
@@ -53,7 +44,6 @@ export type ScanResult = {
   riskReport: RiskReport;
   /** Ready-to-post MR comment with embedded JSON payload */
   preventionNote: string;
-  localSetupPlan?: LocalSetupPlan;
 };
 
 export function scan(options: ScanOptions): ScanResult {
@@ -67,21 +57,16 @@ export function scan(options: ScanOptions): ScanResult {
 
   const signals = detectDeterministicSignals(environmentMap);
 
-  const localSetupPlan = options.includeBootstrapPlan
-    ? buildLocalSetupPlan({ rootDir: options.rootDir, projectPath: options.projectPath })
-    : undefined;
-
   const riskReport = buildRiskReport({
     rootDir: options.rootDir,
     mergeRequestDiff: options.mergeRequestDiff ?? "",
     environmentMap,
-    signals,
-    localSetupPlan
+    signals
   });
 
   const preventionNote = buildPreventionNote(riskReport);
 
-  return { environmentMap, riskReport, preventionNote, localSetupPlan };
+  return { environmentMap, riskReport, preventionNote };
 }
 
 // ---------------------------------------------------------------------------
@@ -141,16 +126,5 @@ export function diagnose(options: DiagnoseOptions): DiagnoseResult {
 
   return { failureContext, predictionMatch, causalAnalysis, fixBundle, reactiveNote };
 }
-
-// ---------------------------------------------------------------------------
-// Bootstrap (local setup planning)
-// ---------------------------------------------------------------------------
-
-export type BootstrapOptions = {
-  rootDir: string;
-  projectPath: string;
-};
-
-export { buildLocalSetupPlan as bootstrap };
 
 export const DEVGUARD_VERSION = "1.0.0";

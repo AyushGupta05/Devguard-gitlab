@@ -6,18 +6,14 @@
   "description": "GitLab Duo Agent Platform managing project for ReproGuard + ItWorksHere",
   "scripts": {
     "build": "tsc --pretty false --noEmit",
-    "demo:bootstrap-plan": "tsx src/demo/bootstrap-plan.ts",
     "demo:golden-path": "tsx src/demo/golden-path.ts",
-    "demo:remote-bootstrap": "tsx src/demo/remote-bootstrap.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "verify:full": "npm run build && npm test && npm run demo:golden-path",
-    "server": "tsx src/server.ts",
     "smoke": "tsx src/index.ts"
   },
   "dependencies": {
     "glob": "^11.0.3",
-    "semver": "^7.7.2",
     "yaml": "^2.8.1",
     "zod": "^4.1.11"
   },

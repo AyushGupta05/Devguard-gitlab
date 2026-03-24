@@ -46,8 +46,8 @@ definition:
 
           ## Note lifecycle (always new versioned comment)
           Search MR notes for `<!-- DEVGUARD_REACTIVE_REPORT` with the same pipeline ID.
-          - None found: post as `## DevGuard Causal Analysis - Pipeline #{N}`
-          - N found: post as `## DevGuard Causal Analysis - Pipeline #{N} (v{N+1})`
+          - None found: post as `## DevGuard Incident Analysis - Pipeline #{N}`
+          - N found: post as `## DevGuard Incident Analysis - Pipeline #{N} (v{N+1})`
           Never edit or delete old comments.
 
           ## Enumerate failing jobs and read logs
@@ -74,8 +74,8 @@ definition:
 
           Classify:
           - **CONFIRMED** - error matches predicted failure mode or confirmatory signal
-          - **PARTIAL** - hypothesis was directionally right but not exact
-          - **UNINVESTIGATED** - no report, empty report, or no match
+          - **PARTIALLY_CONFIRMED** - hypothesis was directionally right but not exact
+          - **UNPREDICTED** - no report, empty report, or no match
 
           ## Confidence rules
           - Clear log + CONFIRMED -> HIGH
@@ -86,22 +86,22 @@ definition:
           - Missing prior prevention report -> do not overstate certainty
 
           ## Post diagnosis comment
-          ## DevGuard Causal Analysis - Pipeline #{N}
-          **Status:** CONFIRMED | PARTIAL | UNINVESTIGATED
+          ## DevGuard Incident Analysis - Pipeline #{N}
+          **Status:** CONFIRMED | PARTIALLY_CONFIRMED | UNPREDICTED
           **Confidence:** HIGH | MEDIUM | LOW
           **Root cause:** {one sentence}
-          **Predicted before failure:** yes | no | partial
+          **Predicted before failure:** yes | no
           ### Evidence
           {log line, repo config, prediction audit, ranked explanations, causal chain}
           ### Fix
           {file edits as code blocks, CI settings as navigation paths}
 
           <!-- DEVGUARD_REACTIVE_REPORT
-          {"version":"2","pipelineId":{N},"jobId":{N},"mrIid":{N},"timestamp":"{ISO}","status":"...","confidence":"...","predictedBeforeFailure":"...","predictionAudit":[...],"rankedExplanations":[...],"causalChain":[...],"rootCause":"...","recommendedFix":"..."}
+          {"reportVersion":"2.0","pipelineId":{N},"mrIid":{N},"generatedAt":"{ISO}","incidentSummary":{"likelyRootCause":"...","confidence":0.0,"affectedJob":"...","predictedBeforeFailure":true,"basedOnHypothesisId":"...","explanationStatus":"..."},"predictionAudit":[...],"rankedExplanations":[...],"causalChain":[...],"recommendedFix":{"highConfidenceFix":"...","possibleNextChecks":[...]}}
           DEVGUARD_REACTIVE_REPORT_END -->
 
           ## Post-comment actions
-          - UNINVESTIGATED -> apply label `itworkshere:needs-review`
+          - UNPREDICTED or LOW confidence -> apply label `itworkshere:needs-review`
           - CONFIRMED -> apply label `itworkshere:confirmed`
           - Do NOT remove unrelated labels
 
