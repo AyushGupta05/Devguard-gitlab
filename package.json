@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "verify:full": "npm run build && npm test && npm run demo:golden-path",
+    "server": "tsx src/server.ts",
     "smoke": "tsx src/index.ts"
   },
   "dependencies": {

@@ -55,8 +55,17 @@ definition:
           ### Blockers
           List anything that prevents setup from being fully automated (missing README, absent .env.example, etc.)
 
+          ## Local execution server
+          DevGuard ships a local approval-gated execution server. If the user wants commands to run
+          automatically (not just planned), tell them to start it:
+
+            npm run server    # starts http://localhost:3000
+
+          Then they can POST their repo URL to http://localhost:3000/api/sessions and the server will
+          present every command in a browser UI with per-command Approve buttons before anything runs.
+
           Rules:
-          - Never execute commands
+          - Never execute commands yourself — the local server handles execution
           - Distinguish between secrets (must be kept private) and config values (safe to show examples)
           - For services covered by docker-compose, show `docker compose up <service>` not a raw docker run
           - If a required tool isn't installed (nvm, pyenv, etc.), note it as a blocker and link to the install page

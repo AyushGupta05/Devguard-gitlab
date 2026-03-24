@@ -56,8 +56,39 @@ system_prompt: |
   6. `npm test` — verify the setup
   ```
 
+  ## Machine-readable session payload (always include this at the end)
+
+  After the human-readable plan, always append a hidden JSON block so the DevGuard local
+  execution server can import it directly without re-analysing the repo:
+
+  <!-- devguard:bootstrap-session:start
+  {
+    "repo": "{owner}/{name}",
+    "repoUrl": "{full clone URL}",
+    "commands": [
+      { "id": "clone",    "label": "Clone {repo}",          "command": "git clone {cloneUrl} \"{localPath}\"", "purpose": "clone" },
+      { "id": "runtime",  "label": "Switch to Node {ver}",  "command": "nvm use {ver}",                        "purpose": "environment" },
+      { "id": "install",  "label": "Install dependencies",  "command": "npm ci",                               "purpose": "install" },
+      { "id": "env",      "label": "Copy .env template",    "command": "cp .env.example .env",                 "purpose": "environment" },
+      { "id": "verify",   "label": "Run tests",             "command": "npm test",                             "purpose": "verify" }
+    ],
+    "requiredSecrets": ["VAR_NAME"],
+    "requiredConfig": ["VAR_NAME"]
+  }
+  devguard:bootstrap-session:end -->
+
+  Adapt the commands array exactly to this repository — only include commands that apply.
+  Use the purpose values: clone | environment | install | start | verify.
+
+  ## How the user runs it
+  After you post this plan, tell the user:
+  1. Make sure `npm run server` is running (starts http://localhost:3000)
+  2. Click **Import from Agent** in the server UI
+  3. Paste the JSON payload above
+  4. Approve each command in the browser, then click Execute
+
   ## Rules
-  - Never execute commands — only produce the plan
+  - Never execute commands — the local server handles execution with per-command approval
   - Flag every missing secret explicitly; do not assume defaults for secret values
   - If .env.example is missing, say so and list every env var that must be created
   - For services covered by docker-compose, show the compose command, not a raw docker run
