@@ -175,13 +175,28 @@ export async function run(options: RunOptions): Promise<RunReport> {
   const envExamplePath = join(effectiveRoot, ".env.example");
 
   if (!existsSync(envFilePath) && existsSync(envExamplePath)) {
-    const cpStep = await execStep({
-      id: "env-copy",
-      label: "Copy .env.example → .env",
-      command: "cp .env.example .env",
-      workdir: effectiveRoot
-    });
-    steps.push(cpStep);
+    try {
+      writeFileSync(envFilePath, readFileSync(envExamplePath, "utf8"));
+      steps.push({
+        id: "env-copy",
+        label: "Copy .env.example to .env",
+        command: "(internal copy)",
+        status: "success",
+        stdout: ".env created from .env.example",
+        stderr: "",
+        exitCode: 0
+      });
+    } catch (err) {
+      steps.push({
+        id: "env-copy",
+        label: "Copy .env.example to .env",
+        command: "(internal copy)",
+        status: "failed",
+        stdout: "",
+        stderr: err instanceof Error ? err.message : String(err),
+        exitCode: 1
+      });
+    }
   }
 
   // -------------------------------------------------------------------------

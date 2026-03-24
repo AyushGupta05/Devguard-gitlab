@@ -4,6 +4,7 @@ import { z } from "zod";
 
 export const riskTypes = [
   "RUNTIME_MISMATCH",
+  "LOCKFILE_MISMATCH",
   "GHOST_VARIABLE",
   "LOCAL_RUN_CONFIGURATION",
   "TIMEZONE_ASSUMPTION",
@@ -12,7 +13,20 @@ export const riskTypes = [
   "UNKNOWN"
 ] as const;
 
-export const matchStatuses = ["CONFIRMED", "PARTIAL", "UNINVESTIGATED"] as const;
+export const failureSignalCategories = [...riskTypes] as const;
+
+export const hypothesisEvaluationStatuses = [
+  "CONFIRMED",
+  "PARTIALLY_CONFIRMED",
+  "NOT_SUPPORTED",
+  "IRRELEVANT"
+] as const;
+
+export const predictionStatuses = [
+  "CONFIRMED",
+  "PARTIALLY_CONFIRMED",
+  "UNPREDICTED"
+] as const;
 
 export const workflowLabels = {
   warned: "reproguard:warned",
@@ -20,6 +34,9 @@ export const workflowLabels = {
   fixed: "itworkshere:fixed",
   needsReview: "itworkshere:needs-review"
 } as const;
+
+const confidenceSchema = z.number().min(0).max(1);
+const severitySchema = z.enum(["LOW", "MEDIUM", "HIGH"]);
 
 const runtimeSchema = z.object({
   source: z.string(),
@@ -29,13 +46,20 @@ const runtimeSchema = z.object({
 const fileEvidenceSchema = z.object({
   path: z.string(),
   line: z.number().int().positive().optional(),
-  excerpt: z.string().optional()
+  excerpt: z.string().optional(),
+  source: z.string().optional()
 });
 
 const variableReferenceSchema = z.object({
   variable: z.string(),
   path: z.string(),
   line: z.number().int().positive().optional()
+});
+
+const reasoningContextSchema = z.object({
+  evidenceCount: z.number().int().nonnegative(),
+  changedFileOverlap: z.boolean(),
+  signalSources: z.array(z.string()).default([])
 });
 
 export const environmentMapSchema = z.object({
@@ -49,10 +73,21 @@ export const environmentMapSchema = z.object({
     node: runtimeSchema.optional(),
     python: runtimeSchema.optional()
   }),
+  declaredRuntimeEngines: z.object({
+    node: runtimeSchema.optional(),
+    python: runtimeSchema.optional()
+  }).default({}),
   ciRuntimes: z.object({
     node: runtimeSchema.optional(),
     python: runtimeSchema.optional()
   }),
+  packageManager: runtimeSchema.optional(),
+  ciInstallCommands: z.array(z.object({
+    path: z.string(),
+    line: z.number().int().positive(),
+    command: z.string()
+  })).default([]),
+  lockfiles: z.array(z.string()).default([]),
   envExampleKeys: z.array(z.string()),
   ciVariableKeys: z.array(z.string()),
   codeVariableReferences: z.array(variableReferenceSchema),
@@ -61,11 +96,53 @@ export const environmentMapSchema = z.object({
   lockfilePresent: z.boolean()
 });
 
-export const riskSchema = z.object({
+export const hypothesisSchema = z.object({
+  hypothesisId: z.string(),
+  category: z.enum(riskTypes),
+  title: z.string(),
+  claim: z.string(),
+  severity: severitySchema,
+  confidence: confidenceSchema,
+  affectedFiles: z.array(z.string()),
+  evidence: z.array(fileEvidenceSchema).default([]),
+  expectedFailureMode: z.string(),
+  confirmatorySignal: z.string(),
+  weakeningSignal: z.string(),
+  suggestedMitigation: z.string(),
+  reasoningContext: reasoningContextSchema.default({
+    evidenceCount: 0,
+    changedFileOverlap: false,
+    signalSources: []
+  })
+});
+
+export const executiveSummarySchema = z.object({
+  hypothesisCount: z.number().int().nonnegative(),
+  topConcern: z.string().nullable(),
+  ciFailureLikelihood: confidenceSchema,
+  reliabilityScore: z.number().int().min(0).max(100),
+  summary: z.string()
+});
+
+export const preventionReportSchema = z.object({
+  reportVersion: z.string(),
+  runId: z.string(),
+  projectPath: z.string(),
+  mergeRequestId: z.number().int().nonnegative(),
+  mrIid: z.number().int().nonnegative(),
+  pipelineId: z.number().int().nonnegative().nullable().optional(),
+  generatedAt: z.string(),
+  summary: executiveSummarySchema,
+  executiveSummary: z.string(),
+  hypotheses: z.array(hypothesisSchema),
+  labelsToApply: z.array(z.string()).default([workflowLabels.warned])
+});
+
+const legacyRiskSchema = z.object({
   riskId: z.string(),
   type: z.enum(riskTypes),
-  severity: z.enum(["LOW", "MEDIUM", "HIGH"]),
-  confidence: z.number().min(0).max(1),
+  severity: severitySchema,
+  confidence: confidenceSchema,
   title: z.string(),
   description: z.string(),
   affectedFiles: z.array(z.string()),
@@ -73,15 +150,17 @@ export const riskSchema = z.object({
   suggestedFix: z.string()
 });
 
-export const riskReportSchema = z.object({
+const legacyRiskReportSchema = z.object({
   runId: z.string(),
   projectPath: z.string(),
   mrIid: z.number().int().nonnegative(),
   generatedAt: z.string(),
   summary: z.string(),
-  risks: z.array(riskSchema),
+  risks: z.array(legacyRiskSchema),
   labelsToApply: z.array(z.string()).default([workflowLabels.warned])
 });
+
+export const riskReportSchema = preventionReportSchema;
 
 export const failureContextSchema = z.object({
   runId: z.string(),
@@ -97,29 +176,102 @@ export const failureContextSchema = z.object({
     architecture: z.string().nullable()
   }),
   changedFiles: z.array(z.string()),
-  priorRiskReport: riskReportSchema.nullable()
+  priorRiskReport: preventionReportSchema.nullable()
 });
 
 export const predictionMatchSchema = z.object({
-  status: z.enum(matchStatuses),
-  confidence: z.number().min(0).max(1),
-  matchedRiskId: z.string().nullable(),
-  rationale: z.string()
+  status: z.enum(predictionStatuses),
+  confidence: confidenceSchema,
+  matchedHypothesisId: z.string().nullable(),
+  rationale: z.string(),
+  predictedBeforeFailure: z.boolean()
 });
 
-export const causalAnalysisSchema = z.object({
+export const failureSignalSchema = z.object({
+  signalId: z.string(),
+  category: z.enum(failureSignalCategories),
+  summary: z.string(),
+  source: z.enum(["job_log", "pipeline_summary", "config_correlation"]),
+  directEvidence: z.string(),
+  line: z.number().int().positive().nullable(),
+  confidence: confidenceSchema,
+  keywords: z.array(z.string()).default([])
+});
+
+export const predictionAuditEntrySchema = z.object({
+  hypothesisId: z.string(),
+  title: z.string(),
+  category: z.enum(riskTypes),
+  status: z.enum(hypothesisEvaluationStatuses),
+  priorConfidence: confidenceSchema,
+  revisedConfidence: confidenceSchema,
+  rationale: z.string(),
+  matchedSignalIds: z.array(z.string()).default([]),
+  observedEvidence: z.array(z.string()).default([])
+});
+
+export const rankedExplanationSchema = z.object({
+  rank: z.number().int().positive(),
+  explanationId: z.string(),
+  title: z.string(),
+  category: z.enum(failureSignalCategories),
+  summary: z.string(),
+  confidence: confidenceSchema,
+  predictedBeforeFailure: z.boolean(),
+  basedOnHypothesisId: z.string().nullable(),
+  evidence: z.array(z.string()),
+  whyRankedHere: z.string(),
+  counterfactual: z.string().optional()
+});
+
+export const causalChainStepSchema = z.object({
+  step: z.number().int().positive(),
+  statement: z.string(),
+  evidence: z.string().optional()
+});
+
+export const recommendedFixSchema = z.object({
+  highConfidenceFix: z.string(),
+  possibleNextChecks: z.array(z.string()).default([])
+});
+
+export const incidentSummarySchema = z.object({
+  likelyRootCause: z.string(),
+  confidence: confidenceSchema,
+  affectedJob: z.string(),
+  predictedBeforeFailure: z.boolean(),
+  basedOnHypothesisId: z.string().nullable(),
+  explanationStatus: z.enum(predictionStatuses)
+});
+
+export const beliefUpdateSchema = z.object({
+  predicted: z.string(),
+  observed: z.string(),
+  validated: z.array(z.string()),
+  learned: z.string(),
+  confidenceDelta: z.string()
+});
+
+export const reactiveReportSchema = z.object({
+  reportVersion: z.string(),
   runId: z.string(),
   projectPath: z.string(),
+  mergeRequestId: z.number().int().nonnegative(),
   mrIid: z.number().int().nonnegative(),
   pipelineId: z.number().int().nonnegative(),
-  status: z.enum(matchStatuses),
-  matchedRiskId: z.string().nullable(),
-  confidence: z.number().min(0).max(1),
-  rootCause: z.string(),
-  evidence: z.array(z.string()),
-  fixDirection: z.string(),
+  generatedAt: z.string(),
+  incidentSummary: incidentSummarySchema,
+  failureSignals: z.array(failureSignalSchema),
+  predictionAudit: z.array(predictionAuditEntrySchema),
+  rankedExplanations: z.array(rankedExplanationSchema),
+  causalChain: z.array(causalChainStepSchema),
+  recommendedFix: recommendedFixSchema,
+  beliefUpdate: beliefUpdateSchema,
+  labelsToApply: z.array(z.string()).default([]),
   humanReviewRequired: z.boolean()
 });
+
+export const causalAnalysisSchema = reactiveReportSchema;
 
 export const fixArtifactSchema = z.object({
   path: z.string(),
@@ -169,7 +321,7 @@ export const localSetupPlanSchema = z.object({
   environmentVariables: z.array(localEnvironmentVariableSchema),
   blockers: z.array(z.string()),
   assumptions: z.array(z.string()),
-  confidence: z.number().min(0).max(1)
+  confidence: confidenceSchema
 });
 
 export const repositorySourceSchema = z.object({
@@ -210,22 +362,41 @@ export const remoteBootstrapSessionSchema = z.object({
 });
 
 export type EnvironmentMap = z.infer<typeof environmentMapSchema>;
-export type Risk = z.infer<typeof riskSchema>;
-export type RiskReport = z.infer<typeof riskReportSchema>;
+export type Hypothesis = z.infer<typeof hypothesisSchema>;
+export type PreventionReport = z.infer<typeof preventionReportSchema>;
 export type FailureContext = z.infer<typeof failureContextSchema>;
 export type PredictionMatch = z.infer<typeof predictionMatchSchema>;
-export type CausalAnalysis = z.infer<typeof causalAnalysisSchema>;
+export type FailureSignal = z.infer<typeof failureSignalSchema>;
+export type PredictionAuditEntry = z.infer<typeof predictionAuditEntrySchema>;
+export type RankedExplanation = z.infer<typeof rankedExplanationSchema>;
+export type CausalChainStep = z.infer<typeof causalChainStepSchema>;
+export type RecommendedFix = z.infer<typeof recommendedFixSchema>;
+export type IncidentSummary = z.infer<typeof incidentSummarySchema>;
+export type BeliefUpdate = z.infer<typeof beliefUpdateSchema>;
+export type ReactiveReport = z.infer<typeof reactiveReportSchema>;
 export type FixBundle = z.infer<typeof fixBundleSchema>;
 export type LocalSetupPlan = z.infer<typeof localSetupPlanSchema>;
 export type RepositorySource = z.infer<typeof repositorySourceSchema>;
 export type TerminalCommandRequest = z.infer<typeof terminalCommandRequestSchema>;
 export type RemoteBootstrapSession = z.infer<typeof remoteBootstrapSessionSchema>;
 
+export type Risk = Hypothesis;
+export type RiskReport = PreventionReport;
+export type CausalAnalysis = ReactiveReport;
+
 export const noteEnvelopeMarkers = {
-  riskReportStart: "<!-- reproguard:risk-report:start -->",
-  riskReportEnd: "<!-- reproguard:risk-report:end -->",
-  causalAnalysisStart: "<!-- itworkshere:causal-analysis:start -->",
-  causalAnalysisEnd: "<!-- itworkshere:causal-analysis:end -->"
+  preventionReportStart: "<!-- DEVGUARD_PREVENTION_REPORT",
+  preventionReportEnd: "DEVGUARD_PREVENTION_REPORT_END -->",
+  riskReportStart: "<!-- DEVGUARD_PREVENTION_REPORT",
+  riskReportEnd: "DEVGUARD_PREVENTION_REPORT_END -->",
+  reactiveReportStart: "<!-- DEVGUARD_REACTIVE_REPORT",
+  reactiveReportEnd: "DEVGUARD_REACTIVE_REPORT_END -->",
+  causalAnalysisStart: "<!-- DEVGUARD_REACTIVE_REPORT",
+  causalAnalysisEnd: "DEVGUARD_REACTIVE_REPORT_END -->",
+  legacyRiskReportStart: "<!-- reproguard:risk-report:start -->",
+  legacyRiskReportEnd: "<!-- reproguard:risk-report:end -->",
+  legacyReactiveReportStart: "<!-- itworkshere:causal-analysis:start -->",
+  legacyReactiveReportEnd: "<!-- itworkshere:causal-analysis:end -->"
 } as const;
 
 export function createRunId(prefix: string) {
@@ -241,7 +412,7 @@ export function fixBundleArtifactPath(mrIid: number, pipelineId: number) {
 }
 
 export function embedPayloadInNote(
-  payload: RiskReport | CausalAnalysis,
+  payload: PreventionReport | ReactiveReport,
   startMarker: string,
   endMarker: string
 ) {
@@ -254,6 +425,150 @@ export function extractEmbeddedPayload<T>(
   endMarker: string,
   schema: z.ZodSchema<T>
 ) {
+  const json = extractEmbeddedJson(noteBody, startMarker, endMarker);
+
+  if (!json) {
+    return null;
+  }
+
+  return schema.parse(JSON.parse(json));
+}
+
+export function extractPreventionReportFromNote(noteBody: string) {
+  const modern = tryParseEmbeddedPayload(
+    noteBody,
+    noteEnvelopeMarkers.preventionReportStart,
+    noteEnvelopeMarkers.preventionReportEnd,
+    preventionReportSchema
+  );
+
+  if (modern) {
+    return modern;
+  }
+
+  const legacy = tryParseEmbeddedPayload(
+    noteBody,
+    noteEnvelopeMarkers.legacyRiskReportStart,
+    noteEnvelopeMarkers.legacyRiskReportEnd,
+    legacyRiskReportSchema
+  ) ?? tryParseEmbeddedPayload(
+    noteBody,
+    noteEnvelopeMarkers.preventionReportStart,
+    noteEnvelopeMarkers.preventionReportEnd,
+    legacyRiskReportSchema
+  );
+
+  return legacy ? normalizeLegacyRiskReport(legacy) : null;
+}
+
+export function normalizeLegacyRiskReport(
+  report: PreventionReport | z.infer<typeof legacyRiskReportSchema>
+) {
+  if ("hypotheses" in report) {
+    return preventionReportSchema.parse(report);
+  }
+
+  const hypotheses = report.risks.map((risk) => legacyRiskToHypothesis(risk));
+  const ciFailureLikelihood = inferFailureLikelihood(hypotheses.map((hypothesis) => hypothesis.confidence));
+
+  return preventionReportSchema.parse({
+    reportVersion: "2",
+    runId: report.runId,
+    projectPath: report.projectPath,
+    mergeRequestId: report.mrIid,
+    mrIid: report.mrIid,
+    generatedAt: report.generatedAt,
+    summary: {
+      hypothesisCount: hypotheses.length,
+      topConcern: hypotheses[0]?.title ?? null,
+      ciFailureLikelihood,
+      reliabilityScore: Math.round((1 - ciFailureLikelihood) * 100),
+      summary: report.summary
+    },
+    executiveSummary: report.summary,
+    hypotheses,
+    labelsToApply: report.labelsToApply
+  });
+}
+
+function legacyRiskToHypothesis(risk: z.infer<typeof legacyRiskSchema>) {
+  const mapping = legacyHypothesisGuidance(risk.type, risk.title);
+
+  return hypothesisSchema.parse({
+    hypothesisId: risk.riskId,
+    category: risk.type,
+    title: risk.title,
+    claim: risk.description,
+    severity: risk.severity,
+    confidence: risk.confidence,
+    affectedFiles: risk.affectedFiles,
+    evidence: risk.evidence,
+    expectedFailureMode: mapping.expectedFailureMode,
+    confirmatorySignal: mapping.confirmatorySignal,
+    weakeningSignal: mapping.weakeningSignal,
+    suggestedMitigation: risk.suggestedFix,
+    reasoningContext: {
+      evidenceCount: risk.evidence.length,
+      changedFileOverlap: risk.affectedFiles.length > 0,
+      signalSources: risk.evidence.map((item) => item.path)
+    }
+  });
+}
+
+function legacyHypothesisGuidance(category: typeof riskTypes[number], title: string) {
+  switch (category) {
+    case "RUNTIME_MISMATCH":
+      return {
+        expectedFailureMode: "Install, build, or test failure caused by a Node runtime gap between local development and CI.",
+        confirmatorySignal: "The failed job log cites an unsupported Node API, engine incompatibility, or a runtime TypeError under the older CI image.",
+        weakeningSignal: "The pipeline succeeds under the current CI image or CI is upgraded to the local Node major."
+      };
+    case "GHOST_VARIABLE":
+      return {
+        expectedFailureMode: "Runtime failure when the code path reads a variable that is missing from CI or the example environment.",
+        confirmatorySignal: "The failed job log mentions the same missing variable or a required-variable startup error.",
+        weakeningSignal: "The pipeline succeeds with the current environment configuration or the variable is declared before rerun."
+      };
+    case "LOCKFILE_MISMATCH":
+      return {
+        expectedFailureMode: "Dependency installation fails because the lockfile or package manager does not match what CI runs.",
+        confirmatorySignal: "The failed job log shows npm, pnpm, or yarn install errors tied to a missing or mismatched lockfile.",
+        weakeningSignal: "The pipeline installs dependencies successfully with the committed lockfile and CI package manager."
+      };
+    case "TIMEZONE_ASSUMPTION":
+      return {
+        expectedFailureMode: "Test or snapshot failure caused by local timezone assumptions producing different output in CI.",
+        confirmatorySignal: "The failed job log shows date, time, snapshot, or locale output diverging across environments.",
+        weakeningSignal: "Tests pass consistently under the CI timezone or the code is updated to use an explicit timezone."
+      };
+    case "DOCKER_IMAGE_DRIFT":
+      return {
+        expectedFailureMode: "A previously stable pipeline becomes non-reproducible because the base image changed underneath the job.",
+        confirmatorySignal: "The failed job log shows a dependency or runtime break that correlates with an unpinned image update.",
+        weakeningSignal: "The image is pinned to a version or digest and the failure does not reproduce."
+      };
+    case "LOCAL_RUN_CONFIGURATION":
+      return {
+        expectedFailureMode: "Local verification or clean-room reproduction fails because setup instructions or required environment pieces are incomplete.",
+        confirmatorySignal: "Bootstrap or local verification surfaces the same missing setup step or configuration gap.",
+        weakeningSignal: "A clean setup succeeds with the documented steps and environment template."
+      };
+    case "SECURITY_LEAK":
+      return {
+        expectedFailureMode: "CI or deployment breaks after a leaked credential is revoked or blocked.",
+        confirmatorySignal: "The failed job log shows authentication errors tied to the exposed credential path.",
+        weakeningSignal: "The credential was rotated safely and the pipeline does not show downstream auth failures."
+      };
+    default:
+      return {
+        expectedFailureMode: `${title} causes a reproducibility failure in CI or a clean environment.`,
+        confirmatorySignal: "Observed failure evidence matches the predicted configuration problem.",
+        weakeningSignal: "Observed failure evidence points elsewhere or the pipeline succeeds."
+      };
+  }
+}
+
+function extractEmbeddedJson(noteBody: string, startMarker: string, endMarker: string) {
   const startIndex = noteBody.indexOf(startMarker);
   const endIndex = noteBody.indexOf(endMarker);
 
@@ -261,9 +576,39 @@ export function extractEmbeddedPayload<T>(
     return null;
   }
 
-  const json = noteBody
+  return noteBody
     .slice(startIndex + startMarker.length, endIndex)
     .trim();
+}
 
-  return schema.parse(JSON.parse(json));
+function tryParseEmbeddedPayload<T>(
+  noteBody: string,
+  startMarker: string,
+  endMarker: string,
+  schema: z.ZodSchema<T>
+) {
+  const json = extractEmbeddedJson(noteBody, startMarker, endMarker);
+
+  if (!json) {
+    return null;
+  }
+
+  try {
+    return schema.parse(JSON.parse(json));
+  } catch {
+    return null;
+  }
+}
+
+function inferFailureLikelihood(confidences: number[]) {
+  if (confidences.length === 0) {
+    return 0.12;
+  }
+
+  const strongest = Math.max(...confidences);
+  return clamp(strongest + Math.min(0.1, (confidences.length - 1) * 0.03));
+}
+
+function clamp(value: number) {
+  return Math.max(0, Math.min(1, value));
 }

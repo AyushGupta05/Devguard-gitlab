@@ -60,7 +60,7 @@ describe("itworkshere response", () => {
     expect(fixBundle.applyCommand).toBe("git apply reproguard-fix.patch");
   });
 
-  it("formats the final reactive note", () => {
+  it("formats the final reactive note as a reasoning report", () => {
     const environmentMap = collectEnvironmentMap({
       rootDir: "fixtures/billing-service",
       projectPath: "fixtures/billing-service",
@@ -103,8 +103,35 @@ describe("itworkshere response", () => {
     const comment = formatReactiveComment(predictionMatch, causalAnalysis, fixBundle);
     const note = buildReactiveNote(predictionMatch, causalAnalysis, fixBundle);
 
-    expect(comment).toContain("Prediction confirmed");
-    expect(comment).toContain("git apply reproguard-fix.patch");
-    expect(note).toContain("<!-- itworkshere:causal-analysis:start -->");
+    expect(comment).toContain("Incident summary");
+    expect(comment).toContain("Prediction audit");
+    expect(comment).toContain("Ranked explanations");
+    expect(comment).toContain("Causal chain");
+    expect(comment).toContain("What changed in my belief");
+    expect(note).toContain("<!-- DEVGUARD_REACTIVE_REPORT");
+  });
+
+  it("keeps a human-review path for unpredicted failures", () => {
+    const failureContext = createFailureContext({
+      projectPath: "fixtures/billing-service",
+      mrIid: 11,
+      pipelineId: 105,
+      failedJobName: "test:unit",
+      errorLog: "Error: upstream API timed out",
+      changedFiles: ["src/billing.js"],
+      priorRiskReport: null
+    });
+
+    const predictionMatch = matchPrediction(failureContext);
+    const causalAnalysis = createCausalAnalysis(failureContext, predictionMatch);
+    const fixBundle = buildFixBundle({
+      rootDir: "fixtures/billing-service",
+      failureContext,
+      predictionMatch,
+      causalAnalysis
+    });
+
+    expect(formatReactiveComment(predictionMatch, causalAnalysis, fixBundle)).toContain("Human review recommended");
+    expect(fixBundle.labelsToApply).toContain("itworkshere:needs-review");
   });
 });

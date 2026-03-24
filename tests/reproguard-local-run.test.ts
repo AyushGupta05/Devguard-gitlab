@@ -12,7 +12,7 @@ import {
 } from "../src/index.js";
 
 describe("reproguard local run diagnostics", () => {
-  it("adds a local run configuration risk when merge requests leave setup blockers", () => {
+  it("adds a local run configuration hypothesis when setup blockers remain", () => {
     const rootDir = mkdtempSync(join(tmpdir(), "reproguard-local-run-"));
 
     try {
@@ -45,7 +45,7 @@ describe("reproguard local run diagnostics", () => {
         localSetupPlan
       });
 
-      expect(riskReport.risks.some((risk) => risk.type === "LOCAL_RUN_CONFIGURATION")).toBe(true);
+      expect(riskReport.hypotheses.some((hypothesis) => hypothesis.category === "LOCAL_RUN_CONFIGURATION")).toBe(true);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }

@@ -2,14 +2,15 @@ import { readFileSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
 
 import {
+  embedPayloadInNote,
   noteEnvelopeMarkers,
-  riskReportSchema,
+  preventionReportSchema,
   type EnvironmentMap,
+  type Hypothesis,
   type LocalSetupPlan,
-  type RiskReport,
-  type Risk
+  type PreventionReport,
+  workflowLabels
 } from "../contracts.js";
-import { embedPayloadInNote } from "../contracts.js";
 import { buildLocalRunConfigurationRisk } from "./local-run.js";
 import { type PreventionSignal } from "./scanners.js";
 
@@ -21,117 +22,139 @@ type BuildRiskReportOptions = {
   localSetupPlan?: LocalSetupPlan;
 };
 
-export function buildRiskReport(options: BuildRiskReportOptions): RiskReport {
-  const risks: Risk[] = [];
+export function buildRiskReport(options: BuildRiskReportOptions): PreventionReport {
+  const hypotheses: Hypothesis[] = [];
   let counter = 1;
 
   for (const signal of options.signals) {
-    if (signal.type === "RUNTIME_MISMATCH") {
-      const runtimeRisk = buildRuntimeMismatchRisk(options, signal, counter);
+    if (signal.category === "RUNTIME_MISMATCH") {
+      const hypothesis = buildRuntimeMismatchHypothesis(options, signal, counter);
 
-      if (runtimeRisk) {
-        risks.push(runtimeRisk);
+      if (hypothesis) {
+        hypotheses.push(hypothesis);
         counter += 1;
       }
 
       continue;
     }
 
-    if (signal.type === "GHOST_VARIABLE" && isGhostVariableRelevant(options.rootDir, options.environmentMap.changedFiles, signal.affectedFiles[0])) {
-      risks.push({
-        riskId: `R${counter}`,
-        ...signal,
-        confidence: 0.92
-      });
-      counter += 1;
+    if (signal.category === "GHOST_VARIABLE") {
+      const hypothesis = buildGhostVariableHypothesis(options, signal, counter);
+
+      if (hypothesis) {
+        hypotheses.push(hypothesis);
+        counter += 1;
+      }
+
       continue;
     }
 
-    // TIMEZONE_ASSUMPTION, DOCKER_IMAGE_DRIFT, SECURITY_LEAK — pass through directly.
-    // These scanners already filter to relevant changed files or CI config, so no additional
-    // relevance check is needed.
-    if (
-      signal.type === "TIMEZONE_ASSUMPTION" ||
-      signal.type === "DOCKER_IMAGE_DRIFT" ||
-      signal.type === "SECURITY_LEAK"
-    ) {
-      risks.push({ riskId: `R${counter}`, ...signal });
+    if (isDirectlyRelevant(signal, options.environmentMap.changedFiles)) {
+      hypotheses.push(createHypothesisFromSignal(signal, `H${counter}`, options.environmentMap.changedFiles));
       counter += 1;
     }
   }
 
   if (options.localSetupPlan) {
-    const localRunRisk = buildLocalRunConfigurationRisk(
+    const localRunHypothesis = buildLocalRunConfigurationRisk(
       options.localSetupPlan,
       options.environmentMap,
-      `R${counter}`
+      `H${counter}`
     );
 
-    if (localRunRisk) {
-      risks.push(localRunRisk);
-      counter += 1;
+    if (localRunHypothesis) {
+      hypotheses.push(localRunHypothesis);
     }
   }
 
-  const summary =
-    risks.length === 0
-      ? "No medium or high-confidence reproducibility risks found."
-      : `Found ${risks.length} reproducibility risk${risks.length === 1 ? "" : "s"} that may break CI or a clean developer environment.`;
+  const orderedHypotheses = hypotheses.sort(compareHypotheses);
+  const ciFailureLikelihood = estimateFailureLikelihood(orderedHypotheses);
+  const topConcern = orderedHypotheses[0]?.title ?? null;
 
-  return riskReportSchema.parse({
+  return preventionReportSchema.parse({
+    reportVersion: "2.0",
     runId: options.environmentMap.runId,
     projectPath: options.environmentMap.projectPath,
+    mergeRequestId: options.environmentMap.mrIid,
     mrIid: options.environmentMap.mrIid,
+    pipelineId: options.environmentMap.pipelineId ?? null,
     generatedAt: new Date().toISOString(),
-    summary,
-    risks,
-    labelsToApply: risks.length > 0 ? ["reproguard:warned"] : []
+    summary: {
+      hypothesisCount: orderedHypotheses.length,
+      topConcern,
+      ciFailureLikelihood,
+      reliabilityScore: Math.max(0, Math.round((1 - ciFailureLikelihood) * 100)),
+      summary: buildExecutiveSummary(orderedHypotheses.length, topConcern, ciFailureLikelihood)
+    },
+    executiveSummary: buildExecutiveSummary(orderedHypotheses.length, topConcern, ciFailureLikelihood),
+    hypotheses: orderedHypotheses,
+    labelsToApply: orderedHypotheses.length > 0 ? [workflowLabels.warned] : []
   });
 }
 
-export function formatPreventionComment(riskReport: RiskReport) {
+export function formatPreventionComment(report: PreventionReport) {
   const lines = [
-    "## ReproGuard - Reproducibility Risk Report",
+    "## DevGuard Causal Reliability Report",
     "",
-    riskReport.summary
+    "### Executive summary",
+    `- Hypotheses: ${report.summary.hypothesisCount}`,
+    `- Top concern: ${report.summary.topConcern ?? "none"}`,
+    `- CI failure likelihood: ${formatPercent(report.summary.ciFailureLikelihood)}`,
+    `- Reliability score: ${report.summary.reliabilityScore}/100`,
+    "",
+    report.executiveSummary
   ];
 
-  if (riskReport.risks.length === 0) {
+  if (report.hypotheses.length === 0) {
+    lines.push("");
+    lines.push("No evidence-backed pre-merge hypothesis is strong enough to warn on this merge request.");
     return lines.join("\n");
   }
 
-  for (const risk of riskReport.risks) {
-    lines.push("");
-    lines.push(`### [${risk.severity}] ${risk.title}`);
-    lines.push(risk.description);
-    lines.push("");
-    lines.push(`Confidence: ${(risk.confidence * 100).toFixed(0)}%`);
+  lines.push("");
+  lines.push("### Hypothesis table");
+  lines.push("");
+  lines.push("| # | Hypothesis | Confidence | Severity | Expected failure mode | Supporting evidence | Recommended mitigation |");
+  lines.push("|---|---|---|---|---|---|---|");
 
-    if (risk.affectedFiles.length > 0) {
-      lines.push(`Affected files: ${risk.affectedFiles.join(", ")}`);
-    }
+  report.hypotheses.forEach((hypothesis, index) => {
+    lines.push([
+      `| ${index + 1}`,
+      sanitizeCell(hypothesis.title),
+      formatPercent(hypothesis.confidence),
+      hypothesis.severity,
+      sanitizeCell(hypothesis.expectedFailureMode),
+      sanitizeCell(summarizeEvidence(hypothesis)),
+      sanitizeCell(hypothesis.suggestedMitigation)
+    ].join(" | ") + " |");
+  });
 
-    lines.push(`Suggested fix: ${risk.suggestedFix}`);
+  lines.push("");
+  lines.push("### Verification hooks");
+
+  for (const hypothesis of report.hypotheses) {
+    lines.push(`- ${hypothesis.hypothesisId}: confirm on ${hypothesis.confirmatorySignal}`);
+    lines.push(`  weaken on ${hypothesis.weakeningSignal}`);
   }
 
   lines.push("");
-  lines.push("_These predictions are stored so ItWorksHere can compare them against a failed pipeline later._");
+  lines.push("_DevGuard stores these hypotheses so reactive analysis can compare prediction against outcome._");
 
   return lines.join("\n");
 }
 
-export function buildPreventionNote(riskReport: RiskReport) {
-  const comment = formatPreventionComment(riskReport);
+export function buildPreventionNote(report: PreventionReport) {
+  const comment = formatPreventionComment(report);
   const payload = embedPayloadInNote(
-    riskReport,
-    noteEnvelopeMarkers.riskReportStart,
-    noteEnvelopeMarkers.riskReportEnd
+    report,
+    noteEnvelopeMarkers.preventionReportStart,
+    noteEnvelopeMarkers.preventionReportEnd
   );
 
   return `${comment}\n\n${payload}`;
 }
 
-function buildRuntimeMismatchRisk(
+function buildRuntimeMismatchHypothesis(
   options: BuildRiskReportOptions,
   signal: PreventionSignal,
   counter: number
@@ -139,36 +162,145 @@ function buildRuntimeMismatchRisk(
   const ciMajor = extractMajor(options.environmentMap.ciRuntimes.node?.value ?? "");
 
   if (options.mergeRequestDiff.includes("toSorted(") && ciMajor !== null && ciMajor < 20) {
-    return {
-      riskId: `R${counter}`,
+    return createHypothesisFromSignal(
+      {
+        ...signal,
+        confidence: 0.97,
+        title: "Node 20 API introduced while CI still runs Node 18",
+        claim: "The merge request introduces Array.prototype.toSorted(), but the GitLab pipeline still runs Node 18. This is likely to fail in CI before merge fallout is visible elsewhere.",
+        evidence: [
+          ...signal.evidence,
+          {
+            path: options.environmentMap.changedFiles[0] ?? "unknown",
+            excerpt: "toSorted(",
+            source: "diff"
+          }
+        ],
+        expectedFailureMode: "Tests fail with a TypeError because the CI runtime does not implement Array.prototype.toSorted().",
+        confirmatorySignal: "The failed job log shows TypeError: invoices.toSorted is not a function or another Node 20 API gap.",
+        weakeningSignal: "The same job passes under the current CI image without any runtime mismatch symptoms.",
+        suggestedMitigation: "Update .gitlab-ci.yml to node:20-alpine before merging this change."
+      },
+      `H${counter}`,
+      options.environmentMap.changedFiles
+    );
+  }
+
+  if (!isDirectlyRelevant(signal, options.environmentMap.changedFiles)) {
+    return null;
+  }
+
+  return createHypothesisFromSignal(signal, `H${counter}`, options.environmentMap.changedFiles);
+}
+
+function buildGhostVariableHypothesis(
+  options: BuildRiskReportOptions,
+  signal: PreventionSignal,
+  counter: number
+) {
+  const ghostFile = signal.affectedFiles[0];
+
+  if (!isGhostVariableRelevant(options.rootDir, options.environmentMap.changedFiles, ghostFile)) {
+    return null;
+  }
+
+  return createHypothesisFromSignal(
+    {
       ...signal,
-      confidence: 0.97,
-      title: "Node 20 API introduced while CI still runs Node 18",
-      description: "The merge request introduces Array.prototype.toSorted(), which is available in Node 20 but not in the current CI runtime. This change is very likely to fail after merge.",
-      evidence: [
-        ...signal.evidence,
-        {
-          path: options.environmentMap.changedFiles[0] ?? "unknown",
-          excerpt: "toSorted("
-        }
-      ],
-      suggestedFix: "Update .gitlab-ci.yml to node:20-alpine before merging this change."
-    } satisfies Risk;
+      confidence: Math.max(signal.confidence, 0.84)
+    },
+    `H${counter}`,
+    options.environmentMap.changedFiles
+  );
+}
+
+function createHypothesisFromSignal(
+  signal: PreventionSignal,
+  hypothesisId: string,
+  changedFiles: string[]
+): Hypothesis {
+  return {
+    hypothesisId,
+    ...signal,
+    reasoningContext: {
+      evidenceCount: signal.evidence.length,
+      changedFileOverlap: signal.affectedFiles.some((filePath) => changedFiles.includes(filePath)),
+      signalSources: Array.from(new Set(signal.evidence.map((item) => item.source ?? item.path)))
+    }
+  };
+}
+
+function compareHypotheses(left: Hypothesis, right: Hypothesis) {
+  const severityDelta = severityRank(right.severity) - severityRank(left.severity);
+
+  if (severityDelta !== 0) {
+    return severityDelta;
   }
 
-  if (signal.affectedFiles.some((filePath) => options.environmentMap.changedFiles.includes(filePath))) {
-    return {
-      riskId: `R${counter}`,
-      ...signal
-    } satisfies Risk;
+  if (right.confidence !== left.confidence) {
+    return right.confidence - left.confidence;
   }
 
-  return null;
+  return left.title.localeCompare(right.title);
+}
+
+function severityRank(severity: Hypothesis["severity"]) {
+  if (severity === "HIGH") {
+    return 3;
+  }
+
+  if (severity === "MEDIUM") {
+    return 2;
+  }
+
+  return 1;
+}
+
+function estimateFailureLikelihood(hypotheses: Hypothesis[]) {
+  if (hypotheses.length === 0) {
+    return 0.08;
+  }
+
+  const strongest = Math.max(...hypotheses.map((hypothesis) => hypothesis.confidence));
+  return Math.min(0.99, strongest + Math.min(0.08, (hypotheses.length - 1) * 0.03));
+}
+
+function buildExecutiveSummary(hypothesisCount: number, topConcern: string | null, likelihood: number) {
+  if (hypothesisCount === 0) {
+    return `DevGuard did not find evidence-backed CI failure hypotheses in this merge request. Residual failure likelihood is ${formatPercent(likelihood)}.`;
+  }
+
+  return `DevGuard formed ${hypothesisCount} evidence-backed hypothesis${hypothesisCount === 1 ? "" : "es"}. Top concern: ${topConcern}. Estimated CI failure likelihood is ${formatPercent(likelihood)}.`;
+}
+
+function summarizeEvidence(hypothesis: Hypothesis) {
+  return hypothesis.evidence
+    .slice(0, 2)
+    .map((item) => {
+      const location = item.line ? `${item.path}:${item.line}` : item.path;
+      return item.excerpt ? `${location} (${item.excerpt})` : location;
+    })
+    .join("; ");
+}
+
+function sanitizeCell(value: string) {
+  return value.replace(/\|/g, "\\|");
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
 }
 
 function extractMajor(runtime: string) {
   const match = runtime.match(/(\d{1,2})/);
   return match ? Number(match[1]) : null;
+}
+
+function isDirectlyRelevant(signal: PreventionSignal, changedFiles: string[]) {
+  return signal.affectedFiles.some((filePath) => changedFiles.includes(filePath)) ||
+    signal.category === "DOCKER_IMAGE_DRIFT" ||
+    signal.category === "LOCKFILE_MISMATCH" ||
+    signal.category === "SECURITY_LEAK";
 }
 
 function isGhostVariableRelevant(rootDir: string, changedFiles: string[], ghostFile: string) {

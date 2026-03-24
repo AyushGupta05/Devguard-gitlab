@@ -8,6 +8,8 @@ import {
   createFailureContext,
   detectDeterministicSignals,
   extractFailureSignature,
+  extractFailureSignals,
+  logLooksPartial,
   summarizeFailureContext
 } from "../src/index.js";
 
@@ -43,8 +45,17 @@ describe("itworkshere failure intake", () => {
       priorRiskReport
     });
 
-    expect(failureContext.priorRiskReport?.risks).toHaveLength(2);
+    expect(failureContext.priorRiskReport?.hypotheses).toHaveLength(2);
     expect(extractFailureSignature(failureContext.errorLog)).toContain("toSorted");
+    expect(extractFailureSignals(failureContext.errorLog)[0].category).toBe("RUNTIME_MISMATCH");
     expect(summarizeFailureContext(failureContext)).toContain("pipeline 101");
+  });
+
+  it("marks short logs as partial", () => {
+    expect(logLooksPartial("TypeError: invoices.toSorted is not a function")).toBe(true);
+    expect(logLooksPartial(readFileSync(
+      "fixtures/billing-service/scenarios/runtime-mismatch-failed-job.log",
+      "utf8"
+    ))).toBe(false);
   });
 });

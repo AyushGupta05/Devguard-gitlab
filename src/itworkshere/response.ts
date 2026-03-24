@@ -8,6 +8,7 @@ import {
   type CausalAnalysis,
   type FailureContext,
   type FixBundle,
+  type Hypothesis,
   type PredictionMatch,
   workflowLabels
 } from "../contracts.js";
@@ -20,44 +21,145 @@ type BuildFixBundleOptions = {
 };
 
 export function buildFixBundle(options: BuildFixBundleOptions): FixBundle {
-  const matchedRisk = options.failureContext.priorRiskReport?.risks.find(
-    (r) => r.riskId === options.predictionMatch.matchedRiskId
+  const matchedHypothesis = options.failureContext.priorRiskReport?.hypotheses.find(
+    (hypothesis) => hypothesis.hypothesisId === options.predictionMatch.matchedHypothesisId
   );
 
-  if (options.predictionMatch.status === "CONFIRMED" && matchedRisk?.type === "RUNTIME_MISMATCH") {
-    return buildRuntimeMismatchFixBundle(options, matchedRisk.title);
+  if (options.predictionMatch.status === "CONFIRMED" && matchedHypothesis?.category === "RUNTIME_MISMATCH") {
+    return buildRuntimeMismatchFixBundle(options, matchedHypothesis);
   }
 
-  if (options.predictionMatch.status === "CONFIRMED" && matchedRisk?.type === "GHOST_VARIABLE") {
-    return buildGhostVariableFixBundle(options, matchedRisk.title);
+  if (options.predictionMatch.status === "CONFIRMED" && matchedHypothesis?.category === "GHOST_VARIABLE") {
+    return buildGhostVariableFixBundle(options, matchedHypothesis);
   }
 
   return buildTriageBundle(options);
 }
 
+export function formatReactiveComment(
+  predictionMatch: PredictionMatch,
+  causalAnalysis: CausalAnalysis,
+  fixBundle: FixBundle
+) {
+  const lines = [
+    "## DevGuard Incident Analysis",
+    "",
+    "### Incident summary",
+    `- Likely root cause: ${causalAnalysis.incidentSummary.likelyRootCause}`,
+    `- Confidence: ${formatPercent(causalAnalysis.incidentSummary.confidence)}`,
+    `- Affected job: ${causalAnalysis.incidentSummary.affectedJob}`,
+    `- Predicted before failure: ${formatPredictionFlag(causalAnalysis.incidentSummary.predictedBeforeFailure, causalAnalysis.incidentSummary.basedOnHypothesisId)}`,
+    ""
+  ];
+
+  lines.push("### Prediction audit");
+  lines.push("");
+  lines.push("| Hypothesis | Outcome | Prior confidence | Revised confidence | Why |");
+  lines.push("|---|---|---|---|---|");
+
+  if (causalAnalysis.predictionAudit.length === 0) {
+    lines.push("| None | UNPREDICTED | - | - | No prior prevention report was available. |");
+  } else {
+    for (const audit of causalAnalysis.predictionAudit) {
+      lines.push([
+        `| ${sanitizeCell(audit.hypothesisId)} ${sanitizeCell(audit.title)}`,
+        audit.status,
+        formatPercent(audit.priorConfidence),
+        formatPercent(audit.revisedConfidence),
+        sanitizeCell(audit.rationale)
+      ].join(" | ") + " |");
+    }
+  }
+
+  lines.push("");
+  lines.push("### Ranked explanations");
+
+  for (const explanation of causalAnalysis.rankedExplanations) {
+    lines.push("");
+    lines.push(`${explanation.rank}. ${explanation.title} (${formatPercent(explanation.confidence)})`);
+    lines.push(explanation.summary);
+    lines.push(`Why ranked here: ${explanation.whyRankedHere}`);
+
+    if (explanation.evidence.length > 0) {
+      lines.push(`Evidence: ${explanation.evidence.join(" | ")}`);
+    }
+
+    if (explanation.counterfactual) {
+      lines.push(`Counterfactual: ${explanation.counterfactual}`);
+    }
+  }
+
+  lines.push("");
+  lines.push("### Causal chain");
+
+  for (const step of causalAnalysis.causalChain) {
+    lines.push(`${step.step}. ${step.statement}`);
+  }
+
+  lines.push("");
+  lines.push("### Recommended fix");
+  lines.push(`High-confidence fix: ${causalAnalysis.recommendedFix.highConfidenceFix}`);
+
+  if (causalAnalysis.recommendedFix.possibleNextChecks.length > 0) {
+    lines.push(`Possible next checks: ${causalAnalysis.recommendedFix.possibleNextChecks.join(" ")}`);
+  }
+
+  lines.push("");
+  lines.push("### What changed in my belief");
+  lines.push(`Predicted: ${causalAnalysis.beliefUpdate.predicted}`);
+  lines.push(`Observed: ${causalAnalysis.beliefUpdate.observed}`);
+  lines.push(`Validated: ${causalAnalysis.beliefUpdate.validated.length > 0 ? causalAnalysis.beliefUpdate.validated.join(", ") : "none"}`);
+  lines.push(`Learned: ${causalAnalysis.beliefUpdate.learned}`);
+  lines.push(`Confidence shift: ${causalAnalysis.beliefUpdate.confidenceDelta}`);
+
+  lines.push("");
+  lines.push("### Fix bundle");
+
+  for (const artifact of fixBundle.artifacts) {
+    lines.push(`- ${artifact.path}`);
+  }
+
+  lines.push(`Apply with: ${fixBundle.applyCommand}`);
+
+  if (predictionMatch.status !== "CONFIRMED") {
+    lines.push("");
+    lines.push("Human review recommended.");
+  }
+
+  return lines.join("\n");
+}
+
+export function buildReactiveNote(
+  predictionMatch: PredictionMatch,
+  causalAnalysis: CausalAnalysis,
+  fixBundle: FixBundle
+) {
+  const comment = formatReactiveComment(predictionMatch, causalAnalysis, fixBundle);
+  const payload = embedPayloadInNote(
+    causalAnalysis,
+    noteEnvelopeMarkers.reactiveReportStart,
+    noteEnvelopeMarkers.reactiveReportEnd
+  );
+
+  return `${comment}\n\n${payload}`;
+}
+
 function buildRuntimeMismatchFixBundle(
   options: BuildFixBundleOptions,
-  riskTitle: string
+  hypothesis: Hypothesis
 ): FixBundle {
-  // Extract versions from risk title: "Node runtime mismatch: local 20.11.0 vs CI 18-alpine"
-  const titleMatch = riskTitle.match(/local ([\d.]+) vs CI (.+)/);
-  const localFull = titleMatch?.[1] ?? "20";
-  const ciTag = titleMatch?.[2] ?? "18-alpine";
-  const localMajor = localFull.match(/^(\d+)/)?.[1] ?? "20";
-
+  const { ciTag, localMajor } = extractVersionsFromHypothesis(hypothesis);
   const ciYmlPath = join(options.rootDir, ".gitlab-ci.yml");
   const currentCiYml = existsSync(ciYmlPath) ? readFileSync(ciYmlPath, "utf8") : "";
   const updatedCi = currentCiYml.replace(`node:${ciTag}`, `node:${localMajor}-alpine`);
 
   const envExamplePath = join(options.rootDir, ".env.example");
   const currentEnvExample = existsSync(envExamplePath) ? readFileSync(envExamplePath, "utf8") : "";
-
-  // Also include any ghost variable fixes alongside the runtime fix
-  const ghostRisks = options.failureContext.priorRiskReport?.risks.filter(
-    (r) => r.type === "GHOST_VARIABLE"
+  const ghostHypotheses = options.failureContext.priorRiskReport?.hypotheses.filter(
+    (item) => item.category === "GHOST_VARIABLE"
   ) ?? [];
-  const updatedEnvExample = ghostRisks.reduce(
-    (acc, risk) => ensureVarDeclared(acc, extractVarName(risk.title)),
+  const updatedEnvExample = ghostHypotheses.reduce(
+    (contents, item) => ensureVarDeclared(contents, extractVarNameFromTitle(item.title)),
     currentEnvExample
   );
 
@@ -82,17 +184,6 @@ function buildRuntimeMismatchFixBundle(
       path: ".env.example",
       content: updatedEnvExample,
       language: "dotenv"
-    },
-    {
-      path: "setup.sh",
-      content: [
-        "#!/usr/bin/env sh",
-        "set -eu",
-        "node --version",
-        "npm ci",
-        "npm test"
-      ].join("\n"),
-      language: "sh"
     }
   );
 
@@ -101,21 +192,20 @@ function buildRuntimeMismatchFixBundle(
     projectPath: options.failureContext.projectPath,
     mrIid: options.failureContext.mrIid,
     pipelineId: options.failureContext.pipelineId,
-    summary: `Generated a minimal fix bundle for the confirmed Node runtime mismatch (${ciTag} → ${localMajor}-alpine).`,
+    summary: `Generated a minimal fix bundle for the confirmed runtime mismatch (${ciTag} -> ${localMajor}-alpine).`,
     labelsToApply: [workflowLabels.confirmed, workflowLabels.fixed],
     artifacts,
     applyCommand: existsSync(scenariosPatchPath)
       ? "git apply reproguard-fix.patch"
-      : `# Update .gitlab-ci.yml: replace node:${ciTag} with node:${localMajor}-alpine`
+      : `Update .gitlab-ci.yml: replace node:${ciTag} with node:${localMajor}-alpine`
   });
 }
 
 function buildGhostVariableFixBundle(
   options: BuildFixBundleOptions,
-  riskTitle: string
+  hypothesis: Hypothesis
 ): FixBundle {
-  const varName = extractVarName(riskTitle);
-
+  const varName = extractVarNameFromTitle(hypothesis.title);
   const envExamplePath = join(options.rootDir, ".env.example");
   const currentEnvExample = existsSync(envExamplePath) ? readFileSync(envExamplePath, "utf8") : "";
   const updatedEnvExample = ensureVarDeclared(currentEnvExample, varName);
@@ -140,14 +230,14 @@ function buildGhostVariableFixBundle(
           "",
           `The application requires \`${varName}\` at runtime.`,
           "",
-          "1. Add it to `.env.example` (done — see artifact)",
-          "2. Go to **Settings → CI/CD → Variables** in GitLab and add the real value",
-          "3. Re-run the failed pipeline"
+          "1. Add it to `.env.example`.",
+          "2. Add it to GitLab Settings > CI/CD > Variables.",
+          "3. Re-run the failed pipeline."
         ].join("\n"),
         language: "md"
       }
     ],
-    applyCommand: `# Copy .env.example and set ${varName} in GitLab CI/CD variables`
+    applyCommand: `Copy the updated .env.example and define ${varName} in GitLab CI/CD variables`
   });
 }
 
@@ -157,7 +247,7 @@ function buildTriageBundle(options: BuildFixBundleOptions): FixBundle {
     projectPath: options.failureContext.projectPath,
     mrIid: options.failureContext.mrIid,
     pipelineId: options.failureContext.pipelineId,
-    summary: "Generated a triage bundle that requires human review before applying changes.",
+    summary: "Generated a triage bundle because the available evidence does not support a high-confidence automatic fix.",
     labelsToApply: [workflowLabels.needsReview],
     artifacts: [
       {
@@ -165,9 +255,9 @@ function buildTriageBundle(options: BuildFixBundleOptions): FixBundle {
         content: [
           "# Manual triage required",
           "",
-          options.causalAnalysis.rootCause,
+          options.causalAnalysis.incidentSummary.likelyRootCause,
           "",
-          "Review the failed job log and apply a targeted fix."
+          `Primary evidence: ${options.causalAnalysis.failureSignals[0]?.directEvidence ?? "No direct signal extracted."}`
         ].join("\n"),
         language: "md"
       }
@@ -176,71 +266,43 @@ function buildTriageBundle(options: BuildFixBundleOptions): FixBundle {
   });
 }
 
-export function formatReactiveComment(
-  predictionMatch: PredictionMatch,
-  causalAnalysis: CausalAnalysis,
-  fixBundle: FixBundle
-) {
-  const lines = ["## ItWorksHere - CI Failure Analysis", ""];
-
-  if (predictionMatch.status === "CONFIRMED") {
-    lines.push("### Prediction confirmed");
-    lines.push("ReproGuard warned about this exact failure before merge.");
-  } else if (predictionMatch.status === "PARTIAL") {
-    lines.push("### Partial match");
-    lines.push("The failure overlaps with an earlier warning, but the match is not definitive.");
-  } else {
-    lines.push("### New failure");
-    lines.push("No prior prediction clearly matched this failure, so the result needs review.");
-  }
-
-  lines.push("");
-  lines.push(`Root cause: ${causalAnalysis.rootCause}`);
-  lines.push(`Confidence: ${(causalAnalysis.confidence * 100).toFixed(0)}%`);
-  lines.push("");
-  lines.push("Evidence:");
-
-  for (const item of causalAnalysis.evidence) {
-    lines.push(`- ${item}`);
-  }
-
-  lines.push("");
-  lines.push("Fix bundle:");
-
-  for (const artifact of fixBundle.artifacts) {
-    lines.push(`- ${artifact.path}`);
-  }
-
-  lines.push(`Apply with: ${fixBundle.applyCommand}`);
-
-  return lines.join("\n");
-}
-
-export function buildReactiveNote(
-  predictionMatch: PredictionMatch,
-  causalAnalysis: CausalAnalysis,
-  fixBundle: FixBundle
-) {
-  const comment = formatReactiveComment(predictionMatch, causalAnalysis, fixBundle);
-  const payload = embedPayloadInNote(
-    causalAnalysis,
-    noteEnvelopeMarkers.causalAnalysisStart,
-    noteEnvelopeMarkers.causalAnalysisEnd
-  );
-
-  return `${comment}\n\n${payload}`;
-}
-
-function ensureVarDeclared(envExample: string, varName: string): string {
+function ensureVarDeclared(envExample: string, varName: string) {
   if (!varName || envExample.includes(`${varName}=`)) {
     return envExample;
   }
+
   const normalized = envExample.endsWith("\n") ? envExample : `${envExample}\n`;
-  const placeholder = varName.toLowerCase().includes("url") ? `${varName}=` : `${varName}=`;
-  return `${normalized}${placeholder}\n`;
+  return `${normalized}${varName}=\n`;
 }
 
-function extractVarName(riskTitle: string): string {
-  const match = riskTitle.match(/Undeclared environment variable:\s*(.+)/);
+function extractVarNameFromTitle(title: string) {
+  const match = title.match(/Undeclared environment variable:\s*(.+)/);
   return match?.[1]?.trim() ?? "";
+}
+
+function extractVersionsFromHypothesis(hypothesis: Hypothesis) {
+  const titleMatch = hypothesis.title.match(/local ([\d.]+) vs CI (.+)/);
+  const localFull = titleMatch?.[1] ?? hypothesis.evidence[0]?.excerpt ?? "20";
+  const ciTag = titleMatch?.[2] ?? hypothesis.evidence[1]?.excerpt ?? "18-alpine";
+
+  return {
+    localMajor: localFull.match(/^(\d+)/)?.[1] ?? localFull,
+    ciTag
+  };
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function sanitizeCell(value: string) {
+  return value.replace(/\|/g, "\\|");
+}
+
+function formatPredictionFlag(predictedBeforeFailure: boolean, hypothesisId: string | null) {
+  if (!predictedBeforeFailure) {
+    return "no";
+  }
+
+  return hypothesisId ? `yes (${hypothesisId})` : "yes";
 }

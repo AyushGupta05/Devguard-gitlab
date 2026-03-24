@@ -153,7 +153,7 @@ describe("run() with local repository", () => {
     }
   }, 30_000);
 
-  it("copies .env.example to .env automatically", async () => {
+  it("attempts to copy .env.example to .env when the file is missing", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "devguard-envcp-"));
     const { existsSync } = await import("node:fs");
     try {
@@ -165,8 +165,9 @@ describe("run() with local repository", () => {
       }, null, 2));
       writeFileSync(join(rootDir, ".env.example"), "PORT=3000\nNODE_ENV=development\n");
 
-      await run({ repoUrl: rootDir, runVerify: false });
+      const report = await run({ repoUrl: rootDir, runVerify: false });
 
+      expect(report.steps.some((step) => step.id === "env-copy")).toBe(true);
       expect(existsSync(join(rootDir, ".env"))).toBe(true);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
