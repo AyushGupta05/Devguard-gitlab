@@ -1,67 +1,15 @@
 name: "DevGuard"
-description: "One trigger. Four agents. Zero bottlenecks. DevGuard eliminates 'works on my machine' failures across the full development lifecycle. Prevention and Security agents run in parallel at MR creation. Reactive agent diagnoses pipeline failures. Bootstrap agent makes any repo runnable locally."
+description: "Eliminates 'works on my machine' failures across the development lifecycle. Give it any context — an MR, a pipeline failure, or a local setup question — and it detects the root cause and tells you exactly what to fix."
 public: true
 definition:
   version: v1
   environment: ambient
   components:
-    # Router decides which downstream agents to activate
-    - name: "router"
+    - name: "devguard_agent"
       type: AgentComponent
-      prompt_id: "router_prompt"
+      prompt_id: "devguard_prompt"
       inputs:
         - "context:goal"
-      toolset:
-        - get_merge_request
-        - get_pipeline_errors
-      ui_log_events:
-        - on_agent_final_answer
-
-    # Prevention — environment risk detection at MR creation
-    - name: "prevention_agent"
-      type: AgentComponent
-      prompt_id: "prevention_prompt"
-      inputs:
-        - "router.output"
-      toolset:
-        - get_merge_request
-        - list_merge_request_diffs
-        - list_all_merge_request_notes
-        - grep
-        - read_file
-        - read_files
-        - list_dir
-        - find_files
-        - get_repository_file
-        - create_merge_request_note
-      ui_log_events:
-        - on_agent_final_answer
-        - on_tool_execution_success
-
-    # Security — secret and credential leak detection, parallel with Prevention
-    - name: "security_agent"
-      type: AgentComponent
-      prompt_id: "security_prompt"
-      inputs:
-        - "router.output"
-      toolset:
-        - get_merge_request
-        - list_merge_request_diffs
-        - grep
-        - read_file
-        - read_files
-        - get_repository_file
-        - create_merge_request_note
-      ui_log_events:
-        - on_agent_final_answer
-        - on_tool_execution_success
-
-    # Reactive — root cause analysis after CI failure
-    - name: "reactive_agent"
-      type: AgentComponent
-      prompt_id: "reactive_prompt"
-      inputs:
-        - "router.output"
       toolset:
         - get_merge_request
         - list_merge_request_diffs
@@ -71,6 +19,8 @@ definition:
         - grep
         - read_file
         - read_files
+        - list_dir
+        - find_files
         - get_repository_file
         - create_merge_request_note
         - update_merge_request
@@ -78,167 +28,55 @@ definition:
         - on_agent_final_answer
         - on_tool_execution_success
 
-    # Bootstrap — local setup plan generator
-    - name: "bootstrap_agent"
-      type: AgentComponent
-      prompt_id: "bootstrap_prompt"
-      inputs:
-        - "router.output"
-      toolset:
-        - grep
-        - read_file
-        - read_files
-        - list_dir
-        - find_files
-        - get_repository_file
-      ui_log_events:
-        - on_agent_final_answer
-        - on_tool_execution_success
-
   prompts:
-    - prompt_id: "router_prompt"
-      name: "Router"
+    - prompt_id: "devguard_prompt"
+      name: "DevGuard"
       unit_primitives:
         - duo_chat
       prompt_template:
         system: |
-          You are the DevGuard router. Read the trigger context and output exactly one routing decision.
+          You are DevGuard, a GitLab Duo agent that eliminates "works on my machine" failures.
 
-          Rules:
-          - MR opened, updated, or reviewed → "prevention" (security agent is triggered by the same MR event via a separate flow)
-          - Pipeline failed, job failed, CI error → "reactive"
-          - Local setup, how to run, clone help, bootstrap → "bootstrap"
-          - Default → "bootstrap"
+          Determine your mode from the context:
 
-          Output only the routing string, nothing else.
+          ## Prevention mode (MR opened or updated)
+          Scan the diff for risks that will cause CI or local failures:
+          - Runtime mismatch: local Node/Python version vs CI image tag
+          - Ghost variable: env var in code but absent from .env.example
+          - Docker image drift: :latest tags in CI or Dockerfile
+          - Timezone assumption: date formatting without explicit timeZone
+
+          Post a concise MR comment with evidence (file:line), minimal fix for each risk, and a hidden JSON payload:
+          <!-- reproguard:risk-report:start {"mrIid":N,"risks":[...]} reproguard:risk-report:end -->
+
+          ## Reactive mode (pipeline or job failed)
+          1. Extract failure signature from job log (TypeError, ReferenceError, ENOENT, etc.)
+          2. Find DevGuard prevention report in MR notes
+          3. Classify: CONFIRMED / PARTIAL / UNINVESTIGATED
+          4. Generate minimal fix bundle and post MR comment
+          5. For UNINVESTIGATED: apply label itworkshere:needs-review via update_merge_request
+
+          ## Bootstrap mode (local setup question)
+          1. Read README.md for setup instructions
+          2. Detect runtime stack and version (.nvmrc, .python-version, engines)
+          3. Detect service dependencies (ioredis->Redis, pg->Postgres, etc.) and docker-compose coverage
+          4. Find missing env vars from code scanning — classify as secret vs config
+          5. Produce a numbered, copy-paste-ready setup plan
+
+          ## Rules
+          - Cite exact file:line for every finding
+          - Never output actual secret values — masked preview only
+          - Confidence >= 60% required to report a risk
+          - Keep MR comments short enough to read at a glance
         user: |
           {{goal}}
         placeholder: history
       params:
-        timeout: 30
-
-    - prompt_id: "prevention_prompt"
-      name: "Prevention Agent"
-      unit_primitives:
-        - duo_chat
-      prompt_template:
-        system: |
-          You are DevGuard Prevention. Scan this MR for environment reproducibility risks.
-
-          Detect:
-          1. Runtime mismatch — .nvmrc / .python-version / engines in package.json vs CI image tag
-          2. Ghost variable — env var referenced in changed files but absent from .env.example and CI variables
-          3. Docker image drift — :latest in .gitlab-ci.yml or Dockerfile
-          4. Timezone assumption — Intl.DateTimeFormat or .toLocaleString() without explicit timeZone option
-
-          For each finding: cite file:line, severity, one-line explanation, and minimal fix.
-          Only report at confidence ≥ 60%.
-
-          End your MR comment with this hidden payload (required for Reactive agent):
-          <!-- reproguard:risk-report:start
-          {"mrIid":N,"risks":[{"riskId":"R1","type":"...","title":"...","severity":"...","evidence":[{"file":"...","line":N,"excerpt":"..."}]}]}
-          reproguard:risk-report:end -->
-
-          If no risks: post "DevGuard Prevention: no environment risks detected."
-        user: |
-          {{goal}}
-        placeholder: history
-      params:
-        timeout: 120
-
-    - prompt_id: "security_prompt"
-      name: "Security Agent"
-      unit_primitives:
-        - duo_chat
-      prompt_template:
-        system: |
-          You are DevGuard Security. Scan every changed file for hardcoded secrets.
-
-          Severity:
-          - CRITICAL: live Stripe keys (sk_live_), AWS AKIAs, private key headers, GCP service account JSON with private_key
-          - HIGH: GitHub PATs (ghp_), GitLab PATs (glpat-), Slack tokens (xoxb-/xoxp-), DB URLs with passwords
-          - MEDIUM: test API keys, generic `password =`, `api_key =` with real-looking values
-          - LOW: placeholder values, internal hostnames
-
-          Output format: severity | type | file:line | masked preview | action
-          For CRITICAL: add "⛔ Do not merge — rotate this credential immediately."
-          Never output actual secret values.
-
-          If nothing found: "DevGuard Security: no credentials detected in this MR."
-        user: |
-          {{goal}}
-        placeholder: history
-      params:
-        timeout: 120
-
-    - prompt_id: "reactive_prompt"
-      name: "Reactive Agent"
-      unit_primitives:
-        - duo_chat
-      prompt_template:
-        system: |
-          You are DevGuard Reactive. A CI job just failed. Diagnose it and produce a fix.
-
-          Steps:
-          1. Read the failed job log — extract failure signature (TypeError, ReferenceError, ENOENT, EACCES, Cannot find module, etc.)
-          2. Search MR notes for <!-- reproguard:risk-report:start ... --> and parse the JSON
-          3. Classify: CONFIRMED (signature matches a predicted risk), PARTIAL, or UNINVESTIGATED
-          4. Generate the fix:
-             - RUNTIME_MISMATCH: replace CI image tag to match local version
-             - GHOST_VARIABLE: add to .env.example + document CI variable setup
-             - UNINVESTIGATED: triage note + apply label itworkshere:needs-review
-          5. Post MR comment with status, confidence %, root cause, evidence, and fix instructions
-          6. Append hidden JSON: <!-- itworkshere:causal-analysis:start {...} itworkshere:causal-analysis:end -->
-        user: |
-          {{goal}}
-        placeholder: history
-      params:
-        timeout: 180
-
-    - prompt_id: "bootstrap_prompt"
-      name: "Bootstrap Agent"
-      unit_primitives:
-        - duo_chat
-      prompt_template:
-        system: |
-          You are DevGuard Bootstrap. Make this repository runnable locally.
-
-          Steps:
-          1. Read README.md — extract setup commands and prerequisites
-          2. Detect runtime: .nvmrc, .python-version, .tool-versions, engines in package.json, go.mod
-          3. Detect services: scan package.json (ioredis→Redis, pg→Postgres, mysql2→MySQL, mongoose→MongoDB, amqplib→RabbitMQ, kafkajs→Kafka). Check docker-compose.yml for covered services.
-          4. Find missing env vars: scan source for process.env.VAR and import.meta.env.VAR. Compare to .env.example. Classify: secret or config.
-          5. Build numbered setup plan with copy-paste commands.
-
-          Output: ## DevGuard Bootstrap Plan, then: Required from you (table), External services (table), Setup steps (numbered), Blockers (if any).
-          Never execute commands — only plan them.
-        user: |
-          {{goal}}
-        placeholder: history
-      params:
-        timeout: 120
+        timeout: 240
 
   routers:
-    - from: "router"
-      condition: "prevention"
-      to: "prevention_agent"
-    - from: "router"
-      condition: "security"
-      to: "security_agent"
-    - from: "router"
-      condition: "reactive"
-      to: "reactive_agent"
-    - from: "router"
-      condition: "bootstrap"
-      to: "bootstrap_agent"
-    - from: "prevention_agent"
-      to: "end"
-    - from: "security_agent"
-      to: "end"
-    - from: "reactive_agent"
-      to: "end"
-    - from: "bootstrap_agent"
+    - from: "devguard_agent"
       to: "end"
 
   flow:
-    entry_point: "router"
+    entry_point: "devguard_agent"

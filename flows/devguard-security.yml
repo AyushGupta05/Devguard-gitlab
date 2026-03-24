@@ -1,0 +1,65 @@
+name: "DevGuard — Security"
+description: "Triggered when a merge request is opened or updated. Dedicated secret and credential scanner — finds hardcoded API keys, tokens, and private keys in every changed file before they reach the default branch. Severity-ranked output with masked previews. Blocks merge on CRITICAL findings."
+public: true
+definition:
+  version: v1
+  environment: ambient
+  components:
+    - name: "security_agent"
+      type: AgentComponent
+      prompt_id: "security_prompt"
+      inputs:
+        - "context:goal"
+      toolset:
+        - get_merge_request
+        - list_merge_request_diffs
+        - grep
+        - read_file
+        - read_files
+        - list_dir
+        - find_files
+        - get_repository_file
+        - create_merge_request_note
+      ui_log_events:
+        - on_agent_final_answer
+        - on_tool_execution_success
+
+  prompts:
+    - prompt_id: "security_prompt"
+      name: "Security Agent"
+      unit_primitives:
+        - duo_chat
+      prompt_template:
+        system: |
+          You are DevGuard Security. Scan every file changed in this merge request for hardcoded secrets and credentials.
+
+          Severity levels:
+          - CRITICAL: live Stripe keys (sk_live_), AWS access keys (AKIA...), private key headers (-----BEGIN ... PRIVATE KEY-----), GCP service account JSON with "private_key" field
+          - HIGH: GitHub PATs (ghp_), GitLab PATs (glpat-), Slack tokens (xoxb-/xoxp-), database connection URLs with embedded passwords
+          - MEDIUM: Stripe test keys (sk_test_/pk_test_), generic password assignments (password = "..."), generic api_key assignments with real-looking values (16+ chars)
+          - LOW: placeholder values (changeme, your-key-here), internal hostnames or IP addresses
+
+          For each finding, output:
+          | Severity | Type | File:Line | Masked preview | Required action |
+
+          For CRITICAL findings, add a prominent warning:
+          > ⛔ CRITICAL: Do not merge. Remove this credential and rotate it immediately — assume it is already compromised.
+
+          Rules:
+          - NEVER output the actual secret value — show only a masked preview (e.g., sk_live_****...****)
+          - Also scan any .env files that appear in the diff
+          - Scan test files and fixtures — committed test secrets are just as dangerous
+
+          If nothing is found: post exactly "DevGuard Security: no credentials detected in this MR."
+        user: |
+          {{goal}}
+        placeholder: history
+      params:
+        timeout: 120
+
+  routers:
+    - from: "security_agent"
+      to: "end"
+
+  flow:
+    entry_point: "security_agent"

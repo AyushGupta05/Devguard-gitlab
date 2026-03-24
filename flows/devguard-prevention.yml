@@ -1,5 +1,5 @@
 name: "DevGuard — Prevention"
-description: "Triggered when a merge request is opened or updated. Runs the Prevention agent and Security agent in parallel to catch both environment risks and secret leaks before CI starts."
+description: "Triggered when a merge request is opened or updated. Scans the diff for runtime mismatches, ghost variables, Docker image drift, and timezone assumptions before CI runs. Posts a structured risk report with evidence and minimal fixes, including a hidden JSON payload for downstream correlation."
 public: true
 definition:
   version: v1
@@ -25,75 +25,35 @@ definition:
         - on_agent_final_answer
         - on_tool_execution_success
 
-    - name: "security_agent"
-      type: AgentComponent
-      prompt_id: "security_prompt"
-      inputs:
-        - "context:goal"
-      toolset:
-        - get_merge_request
-        - list_merge_request_diffs
-        - grep
-        - read_file
-        - read_files
-        - list_dir
-        - find_files
-        - get_repository_file
-        - create_merge_request_note
-      ui_log_events:
-        - on_agent_final_answer
-        - on_tool_execution_success
-
   prompts:
     - prompt_id: "prevention_prompt"
-      name: "Prevention Agent Prompt"
+      name: "Prevention Agent"
       unit_primitives:
         - duo_chat
       prompt_template:
         system: |
-          You are DevGuard Prevention. Your job is to scan a merge request for environment reproducibility risks before CI runs.
+          You are DevGuard Prevention. Scan this merge request for environment reproducibility risks before CI runs.
 
           Detect in order:
-          1. Runtime mismatch — compare .nvmrc/.python-version/engines against the CI image tag
-          2. Ghost variable — env var used in changed files but missing from .env.example and CI variables
+          1. Runtime mismatch — compare .nvmrc / .python-version / engines.node in package.json against the CI image tag in .gitlab-ci.yml or Dockerfile
+          2. Ghost variable — env var used in changed files but absent from .env.example and not declared as a CI variable
           3. Docker image drift — any :latest tag in CI config or Dockerfile
-          4. Timezone assumption — date formatting without explicit timeZone option
+          4. Timezone assumption — date formatting code without an explicit timeZone option (Intl.DateTimeFormat, .toLocaleString(), .toLocaleDateString())
 
-          For each risk: cite file:line, explain why it will fail, and give the minimal fix.
-          Confidence must be ≥ 60% to report.
+          For each risk:
+          - Cite exact file:line
+          - Explain in one sentence why it causes a failure
+          - Give the minimal fix
+          - Include a confidence percentage (only report at >= 60%)
 
-          End your comment with a hidden JSON payload:
+          End your MR comment with this hidden JSON payload (required for the Reactive agent to correlate failures):
           <!-- reproguard:risk-report:start
-          { "mrIid": {{mrIid}}, "risks": [...] }
+          {"mrIid":N,"risks":[{"riskId":"R1","type":"RUNTIME_MISMATCH","title":"...","severity":"high","evidence":[{"file":"...","line":N,"excerpt":"..."}]}]}
           reproguard:risk-report:end -->
+
+          If no risks are found: post a single line "DevGuard Prevention: no environment risks detected."
         user: |
-          Merge request context: {{goal}}
-        placeholder: history
-      params:
-        timeout: 120
-
-    - prompt_id: "security_prompt"
-      name: "Security Agent Prompt"
-      unit_primitives:
-        - duo_chat
-      prompt_template:
-        system: |
-          You are DevGuard Security. Scan every file changed in this merge request for hardcoded secrets and credentials.
-
-          Priority order:
-          - CRITICAL: live Stripe keys, AWS AKIAs, private key headers, GCP service account JSON
-          - HIGH: GitHub/GitLab PATs, Slack tokens, database URLs with passwords
-          - MEDIUM: test keys, generic password/api_key assignments
-          - LOW: placeholder values, internal hostnames
-
-          Rules:
-          - Never output the actual secret — show masked preview only (sk_live_****...****)
-          - Scan .env files in the diff too
-          - For CRITICAL findings, add a blocking merge warning
-
-          If nothing found: post "DevGuard Security: no credentials detected in this MR."
-        user: |
-          Merge request context: {{goal}}
+          {{goal}}
         placeholder: history
       params:
         timeout: 120
@@ -101,11 +61,6 @@ definition:
   routers:
     - from: "prevention_agent"
       to: "end"
-    - from: "security_agent"
-      to: "end"
 
   flow:
     entry_point: "prevention_agent"
-    parallel:
-      - "prevention_agent"
-      - "security_agent"
