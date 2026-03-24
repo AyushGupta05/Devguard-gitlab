@@ -7,9 +7,11 @@ import {
   preventionReportSchema,
   type EnvironmentMap,
   type Hypothesis,
+  type LocalSetupPlan,
   type PreventionReport,
   workflowLabels
 } from "../contracts.js";
+import { buildLocalRunConfigurationRisk } from "./local-run.js";
 import { type PreventionSignal } from "./scanners.js";
 
 type BuildRiskReportOptions = {
@@ -17,6 +19,7 @@ type BuildRiskReportOptions = {
   mergeRequestDiff: string;
   environmentMap: EnvironmentMap;
   signals: PreventionSignal[];
+  localSetupPlan?: LocalSetupPlan;
 };
 
 export function buildRiskReport(options: BuildRiskReportOptions): PreventionReport {
@@ -49,6 +52,18 @@ export function buildRiskReport(options: BuildRiskReportOptions): PreventionRepo
     if (isDirectlyRelevant(signal, options.environmentMap.changedFiles)) {
       hypotheses.push(createHypothesisFromSignal(signal, `H${counter}`, options.environmentMap.changedFiles));
       counter += 1;
+    }
+  }
+
+  if (options.localSetupPlan) {
+    const localRunHypothesis = buildLocalRunConfigurationRisk(
+      options.localSetupPlan,
+      options.environmentMap,
+      `H${counter}`
+    );
+
+    if (localRunHypothesis) {
+      hypotheses.push(localRunHypothesis);
     }
   }
 

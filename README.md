@@ -1,20 +1,23 @@
 # DevGuard
 
-DevGuard is a GitLab Duo Agent Platform managing project for a causal reliability agent focused on CI, environment, and runtime failures.
+DevGuard is a GitLab Duo Agent Platform managing project for a causal reliability agent with three connected modes:
 
-- `ReproGuard` forms pre-merge hypotheses about what is likely to fail in CI.
-- `ItWorksHere` audits those hypotheses against the failed pipeline and generates the smallest credible fix bundle.
+- `Bootstrap` takes a repo URL or local path, builds an approval-gated local setup plan, and identifies missing env vars or services.
+- `Prevention` forms pre-merge hypotheses about what is likely to fail in CI.
+- `Reactive` audits those earlier hypotheses against the failed pipeline and generates the smallest credible fix bundle.
 
 ## Repository Layout
 
 - `agents/` GitLab Duo custom agent definitions
 - `flows/` GitLab Duo custom flow definitions
-- `src/` shared TypeScript implementation for scanning, reasoning, prediction audit, and response generation
-- `tests/` automated coverage for the prevention and reactive paths
-- `fixtures/billing-service/` the demo application with the intentional CI/runtime landmines
+- `src/` shared TypeScript implementation for bootstrap, scanning, reasoning, prediction audit, and response generation
+- `tests/` automated coverage for bootstrap, prevention, and reactive paths
+- `fixtures/billing-service/` the demo application with the intentional CI and runtime landmines
 
 ## What Is Implemented
 
+- approval-gated bootstrap planning from a repo URL or local path
+- local runtime, env var, and service dependency detection
 - hypothesis-first prevention analysis
 - structured prevention payloads with hidden machine-readable continuity data
 - failed pipeline intake and signal extraction
@@ -44,6 +47,8 @@ Golden-path scenario files:
 npm install
 npm run build
 npm test
+npm run demo:bootstrap-plan -- fixtures/billing-service billing-service
+npm run demo:remote-bootstrap -- fixtures/billing-service .tmp-bootstrap
 npm run demo:golden-path
 ```
 
@@ -53,7 +58,22 @@ Full verification:
 npm run verify:full
 ```
 
+To try the approval-gated bootstrap UI:
+
+```bash
+npm run server
+```
+
+Then open [http://localhost:3000](http://localhost:3000).
+
 ## Product Behavior
+
+For local setup bootstrap:
+
+1. inspect the repository README and config
+2. infer install, env, runtime, and verification steps
+3. identify required secrets, config vars, and service dependencies
+4. produce an approval-gated command session for local execution
 
 For merge requests:
 
@@ -71,12 +91,14 @@ For failed pipelines:
 
 ## Demo Runbook
 
-1. Show the merge request patch that introduces `toSorted()`.
-2. Show the ReproGuard warning with the Node mismatch and missing env var.
-3. Ignore the warning and move to the failed pipeline log.
-4. Show ItWorksHere confirming the prediction and the generated fix bundle.
-5. Run `npm run demo:golden-path` to replay the full story.
+1. Start with `npm run demo:bootstrap-plan -- fixtures/billing-service billing-service` to show the missing `REDIS_URL` and the setup blockers.
+2. Show `npm run demo:remote-bootstrap -- fixtures/billing-service .tmp-bootstrap` to demonstrate the approval-gated execution session.
+3. Show the merge request patch that introduces `toSorted()`.
+4. Show the ReproGuard warning with the Node mismatch and missing env var.
+5. Ignore the warning and move to the failed pipeline log.
+6. Show ItWorksHere confirming the prediction and the generated fix bundle.
+7. Run `npm run demo:golden-path` to replay the prevention-plus-reactive story.
 
 ## Submission Summary
 
-DevGuard predicts CI reliability failures before merge, then confirms and fixes the same failure after CI breaks.
+DevGuard bootstraps local setup, predicts CI reliability failures before merge, then confirms and fixes the same failure after CI breaks.
